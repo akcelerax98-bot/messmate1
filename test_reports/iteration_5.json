@@ -1,0 +1,50 @@
+{
+  "summary": "Full Admin (Part 3) backend + frontend verification. Backend: 84/84 pytest pass (15 auth + 21 student regression + 48 NEW admin). All admin endpoints verified: students summary returns numeric counts (44/29/7/8); status filter pending/approved/blocked/all works; approve/reject flow flips approval_status and is reflected via GET; 404 on unknown id; /admin/today returns per-meal eating/not_eating/item_counts/reason_counts/custom_answer_counts/like_pct/dislike_pct with total_responses>0; /admin/feedback strictly anonymous (no student_id/user_id/mobile_or_user_id/full_name in projection); /admin/dashboard returns preference_count*quantity_per_person=suggested with display unit conversion (g->kg, ml->litres) and warnings for missing necessary_info; NI CRUD works with duplicate (item_name,meal_type) -> 400; menus GET returns 7 weekday docs and PUT monday persists; wastage PUT computes per-item loss + meal_loss + total_loss + meal_wastage_kg using price lookup from necessary_info; /admin/wastage/today returns today+yesterday+last_week_same_day docs + average_loss_30d + saved_amount_vs_avg; /admin/wastage/trend?range=7/30/90&meal=all/breakfast/lunch/dinner returns wastage_series and saved_series of exactly the requested length; /admin/settings GET returns singleton and PUT updates default_meal_state. All /admin/* endpoints reject student role with 403 (10 GET + 3 mutating verified) and anon with 401 (10 endpoints + invalid token). Bug fix applied (see rca_of_issue): settings PUT was returning 500 due to MongoDB $set/$setOnInsert path conflict. Frontend (Expo web preview, viewport 390x844): admin/admin123 login lands on Students Status; tile-total/approved/pending/blocked render (44/29/7/8); approve button on a pending row removed it AND decremented Pending (7->6) AND incremented Approved (29->30) — live state sync verified. Segmented meal switcher updates the meal detail block (verified Lunch: 21 eating, 8 not eating, 77% liked / 23% disliked, item demand bars Lemon Rice 14, Curd Rice 10, Potato Fry 11, Rice 1). Dashboard shows per-meal blocks with eating pill, Most demanded: Dosa (19), Lowest: Rice (1); Pongal 16 pref × 120 grams/person => 1.92 kg (display conversion correct), Vada 32 pieces, Chutney 700 ml; warning rendered for Potato Fry (no necessary_info). Wastage tab shows wcalc-tile-total=1.8 kg, wcalc-tile-loss=₹91, by-meal breakdown, yesterday & last-week cards (10.8 kg each), wcalc-save/wcalc-chart/wcalc-range/wcalc-meal/wcalc-chart-mode all present; range switched to 30 works. Necessary Info ni-tab segmented switches between Menu / Qty-Price / Questions (Qty/Price reveals ni-add and item list); Menu sub-tab shows weekday inputs; Questions sub-tab shows per-meal custom Q editors. Settings tab profile shows 'Demo Admin' / 'Demo Hostel' with role chip 'Admin · admin'; setting-meal-state ON/OFF, setting-like-state, setting-pref-state, setting-notifications, setting-language, admin-settings-logout all present; logout returns to Welcome (role-admin-card visible). Regression: backend student tests + auth tests all green; student endpoints unchanged. No critical issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/students/{id}/approve|/reject", "issue": "There is no /pending endpoint to flip a student back to pending; the demo pending cohort relies on idempotent seeding (pending001..pending004 are re-created only if missing). After running test_approve_then_reject_flow the candidate ends up blocked, not pending. Not a bug per spec, but worth documenting if admins need to re-pend a student manually."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN web shim", "issue": "Console warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' (cosmetic; emitted from RNW). Reference: any screen using shadow* style props in StyleSheet"},
+      {"component": "RN web shim", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents.' (cosmetic; emitted by KeyboardAvoidingView/Pressable in some screens)"}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin.py",
+    "/app/backend/tests/test_auth.py",
+    "/app/backend/tests/test_student.py",
+    "/app/test_reports/pytest/iteration_5_admin.xml",
+    "/app/test_reports/pytest/iteration_5_full.xml"
+  ],
+  "action_items": [
+    "Optional: address RNW deprecation warnings (shadow* -> boxShadow, props.pointerEvents -> style.pointerEvents) to silence noisy console logs. Functionality unaffected.",
+    "Optional: surface an admin-side 'Set back to pending' control if re-pending blocked users is desired UX (currently only approve/reject flips exist per spec)."
+  ],
+  "critical_code_review_comments": [
+    "server.py L1212-1216 (now fixed): PUT /admin/settings was using {'$set': body, '$setOnInsert': {'id':'app', **SETTINGS_DEFAULTS}} which on an UPDATE (doc exists, body contains a key like default_meal_state that is also in SETTINGS_DEFAULTS) trips MongoDB path-conflict validation -> WriteError code 40 -> 500. Fix: only include keys NOT in body inside $setOnInsert. Verified by test_put_updates_meal_state.",
+    "server.py L1208-1210: PUT settings raises 400 if body is empty after stripping None values. Good.",
+    "server.py L630-647: /admin/students projection correctly excludes password_hash and _id.",
+    "server.py L777-788: /admin/feedback projection explicitly omits student_id - PII guarantee held.",
+    "server.py L908-995: dashboard correctly distinguishes 'menu missing' vs 'qty/person missing' vs 'no responses' via 3 distinct warning strings."
+  ],
+  "updated_files": [
+    "/app/backend/server.py — fixed MongoDB $set/$setOnInsert path conflict in PUT /admin/settings (L1207-1214).",
+    "/app/backend/tests/test_admin.py — NEW; 48 admin tests across 8 classes.",
+    "/app/memory/test_credentials.md — appended seeded extra demo cohorts (approved/pending/blocked + demopass) per Part 3."
+  ],
+  "success_rate": {
+    "backend": "100% (84/84 pytest)",
+    "frontend": "100% (admin tabs, approve flow, logout, regression verified)"
+  },
+  "seed_data_creation": "None new — backend startup seeds 4 base users, ~30 extra approved demo students, 4 pending demo (pending001..004), N blocked demo, 7 menus, today's daily_plans/menu_reactions/feedback, 95 days wastage, necessary_info items, app_settings singleton — all idempotent.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin (Part 3) is fully closed. Live snapshot at testing time: 44 students total / 29 approved / 7 pending / 8 blocked. Today's totals: B=22, L=21, D=23, responses=29. Wastage today=1.8kg/₹91, yesterday=10.8kg, last-week=10.8kg. Settings singleton normal. New canary test: test_admin.py::TestSettings::test_put_updates_meal_state guards the MongoDB path-conflict fix; if it regresses to 500 the $setOnInsert overlap is back. Frontend admin testIDs are stable; ni-add is only mounted on the 'Qty / Price' sub-tab — switch via [data-testid=\"ni-tab\"] >> text=Qty before asserting. Tab navigation tip: the tab labels (Wastage/Info/Settings) collide with welcome screen body text, so always use page.get_by_role('tab', name=...) instead of text= selectors.",
+  "rca_of_issue": "ROOT CAUSE: PUT /api/admin/settings with {default_meal_state:'OFF'} returned HTTP 500. The update spec was {'$set': {default_meal_state:'OFF',updated_at:...}, '$setOnInsert': {id:'app', default_meal_state:'ON', default_like_dislike_state:'no_response', ...}}. MongoDB validates the update document for path conflicts BEFORE deciding whether the operation is an insert or update, so the duplicate path 'default_meal_state' (present in both $set and $setOnInsert) raised WriteError code 40: \"Updating the path 'default_meal_state' would create a conflict at 'default_meal_state'\". FIX (server.py L1207-1216): construct $setOnInsert with only the keys not already present in $set: `set_on_insert = {'id':'app', **{k:v for k,v in SETTINGS_DEFAULTS.items() if k not in body}}`. VERIFICATION: 48/48 admin tests pass including TestSettings::test_put_updates_meal_state and TestSettings::test_get_returns_singleton (GET still works after PUT)."
+}

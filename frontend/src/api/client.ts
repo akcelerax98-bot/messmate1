@@ -16,11 +16,13 @@ export type Unit = "pieces" | "grams" | "kg" | "ml" | "litres";
 export type User = {
   id: string;
   full_name: string;
-  mobile_or_user_id: string;
+  email: string;
+  mobile_or_user_id?: string | null;
   institution_or_hostel_name: string;
   room_number?: string | null;
   role: Role;
   approval_status: ApprovalStatus;
+  email_verified?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -213,6 +215,17 @@ export type AppSettings = {
   updated_at?: string;
 };
 
+export class ApiError extends Error {
+  status: number;
+  data: any;
+  constructor(message: string, status: number, data: any) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.data = data;
+  }
+}
+
 async function request<T>(
   path: string,
   options: { method?: string; body?: any; token?: string | null } = {},
@@ -231,49 +244,59 @@ async function request<T>(
   const data = text ? JSON.parse(text) : null;
 
   if (!res.ok) {
-    const detail =
-      (data && (data.detail || data.message)) || `Request failed (${res.status})`;
-    throw new Error(typeof detail === "string" ? detail : "Request failed");
+    const detail = data && (data.detail || data.message);
+    let msg = `Request failed (${res.status})`;
+    if (typeof detail === "string") msg = detail;
+    else if (detail && typeof detail === "object" && detail.message) msg = detail.message;
+    throw new ApiError(msg, res.status, data);
   }
   return data as T;
 }
 
 export const api = {
-  // Auth
-  registerStudent: (payload: {
+  // Auth — email OTP
+  register: (payload: {
     full_name: string;
-    mobile_or_user_id: string;
-    institution_or_hostel_name: string;
-    room_number: string;
+    email: string;
     password: string;
-  }) => request<User>("/auth/register-student", { method: "POST", body: payload }),
-  login: (payload: {
-    mobile_or_user_id: string;
-    password: string;
+    confirm_password: string;
     institution_or_hostel_name: string;
+    role?: "student" | "admin";
   }) =>
     request<{
-      challenge: string;
-      delivery: "sms" | "dev";
-      dev_otp: string | null;
-      masked_mobile: string;
-      user_preview: {
-        full_name: string;
-        role: Role;
-        mobile_or_user_id: string;
-        institution_or_hostel_name: string;
-      };
-    }>("/auth/login", { method: "POST", body: payload }),
-  verifyLoginOtp: (payload: { challenge: string; otp: string }) =>
-    request<TokenResponse>("/auth/verify-login-otp", {
-      method: "POST",
-      body: payload,
-    }),
-  resendOtp: (payload: { challenge: string }) =>
-    request<{ delivery: "sms" | "dev"; dev_otp: string | null; masked_mobile: string }>(
+      status: "verification_required";
+      email: string;
+      resend_available_in: number;
+      expires_in: number;
+    }>("/auth/register", { method: "POST", body: payload }),
+  verifyEmail: (payload: { email: string; otp: string }) =>
+    request<TokenResponse>("/auth/verify-email", { method: "POST", body: payload }),
+  login: (payload: { email: string; password: string }) =>
+    request<TokenResponse>("/auth/login", { method: "POST", body: payload }),
+  resendOtp: (payload: { email: string; purpose: "registration" | "forgot_password" }) =>
+    request<{ status: string; resend_available_in: number; expires_in: number }>(
       "/auth/resend-otp",
       { method: "POST", body: payload },
     ),
+  forgotPassword: (payload: { email: string }) =>
+    request<{ status: string; resend_available_in: number; expires_in: number }>(
+      "/auth/forgot-password",
+      { method: "POST", body: payload },
+    ),
+  forgotPasswordVerify: (payload: { email: string; otp: string }) =>
+    request<{ reset_token: string; expires_in: number }>(
+      "/auth/forgot-password/verify",
+      { method: "POST", body: payload },
+    ),
+  resetPassword: (payload: {
+    reset_token: string;
+    new_password: string;
+    confirm_password: string;
+  }) =>
+    request<TokenResponse>("/auth/reset-password", {
+      method: "POST",
+      body: payload,
+    }),
   savePushToken: (
     token: string,
     payload: { push_token: string; platform?: "ios" | "android" | "web" },

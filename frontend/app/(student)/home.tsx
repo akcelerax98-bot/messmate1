@@ -25,7 +25,7 @@ import { Chip } from "@/src/components/Chip";
 import { NotifBell } from "@/src/components/NotifBell";
 import { Toast } from "@/src/components/Toast";
 import { ToggleOnOff } from "@/src/components/ToggleOnOff";
-import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
+import { radius, shadow, spacing, typography, colors, useTheme, type ThemeColors } from "@/src/theme";
 
 const DEFAULT_PLAN: MealPlan = {
   status: null,

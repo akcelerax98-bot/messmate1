@@ -18,7 +18,7 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { BarChart } from "@/src/components/BarChart";
 import { Segmented } from "@/src/components/Segmented";
 import { Toast } from "@/src/components/Toast";
-import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
+import { radius, shadow, spacing, typography, colors, useTheme, type ThemeColors } from "@/src/theme";
 
 type Range = "7" | "30" | "90";
 type MealFilter = "all" | "breakfast" | "lunch" | "dinner";

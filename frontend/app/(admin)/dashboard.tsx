@@ -16,7 +16,7 @@ import { api, type DashboardMeal, type DashboardResponse, type MealType } from "
 import { useAuth } from "@/src/auth/AuthContext";
 import { StatTile } from "@/src/components/StatTile";
 import { Toast } from "@/src/components/Toast";
-import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
+import { radius, shadow, spacing, typography, colors, useTheme, type ThemeColors } from "@/src/theme";
 
 const ICON: Record<MealType, keyof typeof Feather.glyphMap> = {
   breakfast: "coffee",

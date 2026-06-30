@@ -11,7 +11,7 @@ import React, {
   useState,
 } from "react";
 
-import { api, type User } from "@/src/api/client";
+import { api, type TokenResponse, type User } from "@/src/api/client";
 import { storage } from "@/src/utils/storage";
 
 const TOKEN_KEY = "messmate.jwt";
@@ -24,14 +24,10 @@ type AuthState = {
 };
 
 type AuthContextValue = AuthState & {
-  login: (payload: { challenge: string; otp: string }) => Promise<User>;
-  registerStudent: (payload: {
-    full_name: string;
-    mobile_or_user_id: string;
-    institution_or_hostel_name: string;
-    room_number: string;
-    password: string;
-  }) => Promise<User>;
+  /** Persist a TokenResponse (used by all auth flows that return a JWT). */
+  setSession: (resp: TokenResponse) => Promise<User>;
+  /** Email + password login. Throws on bad creds or unverified email. */
+  loginEmail: (payload: { email: string; password: string }) => Promise<User>;
   logout: () => Promise<void>;
 };
 
@@ -42,7 +38,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Restore from storage on mount.
   useEffect(() => {
     (async () => {
       const savedToken = await storage.secureGet(TOKEN_KEY, "");
@@ -61,20 +56,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const login: AuthContextValue["login"] = useCallback(async (payload) => {
-    const res = await api.verifyLoginOtp(payload);
-    await storage.secureSet(TOKEN_KEY, res.access_token);
-    await storage.setItem(USER_KEY, JSON.stringify(res.user));
-    setToken(res.access_token);
-    setUser(res.user);
-    return res.user;
+  const setSession: AuthContextValue["setSession"] = useCallback(async (resp) => {
+    await storage.secureSet(TOKEN_KEY, resp.access_token);
+    await storage.setItem(USER_KEY, JSON.stringify(resp.user));
+    setToken(resp.access_token);
+    setUser(resp.user);
+    return resp.user;
   }, []);
 
-  const registerStudent: AuthContextValue["registerStudent"] = useCallback(
+  const loginEmail: AuthContextValue["loginEmail"] = useCallback(
     async (payload) => {
-      return await api.registerStudent(payload);
+      const resp = await api.login(payload);
+      return await setSession(resp);
     },
-    [],
+    [setSession],
   );
 
   const logout = useCallback(async () => {
@@ -85,8 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ token, user, loading, login, registerStudent, logout }),
-    [token, user, loading, login, registerStudent, logout],
+    () => ({ token, user, loading, setSession, loginEmail, logout }),
+    [token, user, loading, setSession, loginEmail, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -118,8 +113,6 @@ export function useAuthRouting() {
 
     let target: string | null = null;
     if (!user) {
-      // After logout we must leave any role-gated or status screen (pending /
-      // blocked are status screens that only make sense while logged in).
       const path = segments.join("/");
       if (
         top === "(student)" ||

@@ -1,7 +1,8 @@
-// Student registration — Theme-reactive.
+// Registration — email + password + institution. Sends OTP to email then
+// navigates to verify-email.
 
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -14,31 +15,38 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useAuth } from "@/src/auth/AuthContext";
+import { api } from "@/src/api/client";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
-import { radius, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
+import { spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
+
+function validEmail(s: string): boolean {
+  return /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(s.trim());
+}
 
 export default function Register() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ role?: string }>();
+  const role = (params.role === "admin" ? "admin" : "student") as "student" | "admin";
   const { c } = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const { registerStudent } = useAuth();
 
   const [fullName, setFullName] = useState("");
-  const [mobile, setMobile] = useState("");
+  const [email, setEmail] = useState("");
   const [hostel, setHostel] = useState("");
-  const [room, setRoom] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
 
   const onSubmit = async () => {
     setError(null);
-    if (!fullName.trim() || !mobile.trim() || !hostel.trim() || !room.trim() || !password) {
+    if (!fullName.trim() || !email.trim() || !hostel.trim() || !password) {
       setError("Please fill in all fields.");
+      return;
+    }
+    if (!validEmail(email)) {
+      setError("Please enter a valid email address.");
       return;
     }
     if (password.length < 6) {
@@ -52,44 +60,24 @@ export default function Register() {
 
     setLoading(true);
     try {
-      await registerStudent({
+      await api.register({
         full_name: fullName.trim(),
-        mobile_or_user_id: mobile.trim(),
-        institution_or_hostel_name: hostel.trim(),
-        room_number: room.trim(),
+        email: email.trim(),
         password,
+        confirm_password: confirm,
+        institution_or_hostel_name: hostel.trim(),
+        role,
       });
-      setSuccess(true);
+      router.replace({
+        pathname: "/(auth)/verify-email",
+        params: { email: email.trim(), from: "register" },
+      });
     } catch (e: any) {
       setError(e?.message || "Registration failed");
     } finally {
       setLoading(false);
     }
   };
-
-  if (success) {
-    return (
-      <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
-        <View style={styles.centerWrap}>
-          <View style={[styles.statusIcon, { backgroundColor: c.primaryLight }]}>
-            <Feather name="check" size={32} color={c.primary} />
-          </View>
-          <Text style={styles.statusTitle} testID="register-success-title">
-            Registration submitted
-          </Text>
-          <Text style={styles.statusBody}>
-            Your account is waiting for admin approval. You'll be able to log in once approved.
-          </Text>
-          <Button
-            testID="register-back-to-login"
-            label="Back to login"
-            onPress={() => router.replace("/(auth)/student-login")}
-            style={{ marginTop: spacing.xl, alignSelf: "stretch" }}
-          />
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
@@ -110,25 +98,37 @@ export default function Register() {
             <Feather name="chevron-left" size={26} color={c.textPrimary} />
           </TouchableOpacity>
 
-          <Text style={styles.title} testID="register-title">Create your account</Text>
+          <Text style={styles.title} testID="register-title">
+            {role === "admin" ? "Create admin account" : "Create your account"}
+          </Text>
           <Text style={styles.subtitle}>
-            Submit your details — the admin will approve you.
+            {role === "admin"
+              ? "You'll get started right after verifying your email."
+              : "Submit your details — the admin will approve you after email verification."}
           </Text>
 
           <View style={{ marginTop: spacing.xl }}>
             <Input testID="register-fullname-input" label="Full name" placeholder="e.g., Aarav Kumar" value={fullName} onChangeText={setFullName} autoCapitalize="words" />
-            <Input testID="register-mobile-input" label="Mobile number" placeholder="10-digit mobile number" value={mobile} onChangeText={setMobile} keyboardType="phone-pad" autoCapitalize="none" />
-            <Input testID="register-hostel-input" label="Institution / Hostel name" placeholder="e.g., Sunrise Hostel" value={hostel} onChangeText={setHostel} autoCapitalize="words" />
-            <Input testID="register-room-input" label="Room number or User ID" placeholder="e.g., A101" value={room} onChangeText={setRoom} autoCapitalize="characters" />
+            <Input
+              testID="register-email-input"
+              label="Email"
+              placeholder="you@example.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              value={email}
+              onChangeText={setEmail}
+            />
+            <Input
+              testID="register-hostel-input"
+              label="Institution / Hostel name"
+              placeholder="e.g., Sunrise Hostel"
+              value={hostel}
+              onChangeText={setHostel}
+              autoCapitalize="words"
+            />
             <Input testID="register-password-input" label="Password" placeholder="At least 6 characters" value={password} onChangeText={setPassword} secureTextEntry />
             <Input testID="register-confirm-input" label="Confirm password" placeholder="Re-enter your password" value={confirm} onChangeText={setConfirm} secureTextEntry />
-
-            <View style={styles.otpBox} testID="otp-placeholder">
-              <Feather name="info" size={16} color={c.textSecondary} />
-              <Text style={styles.otpText}>
-                You'll verify via SMS OTP at first login.
-              </Text>
-            </View>
 
             {error ? (
               <Text style={styles.error} testID="register-error">{error}</Text>
@@ -141,6 +141,18 @@ export default function Register() {
               loading={loading}
               style={{ marginTop: spacing.md }}
             />
+
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Already have an account?</Text>
+              <TouchableOpacity
+                testID="register-back-to-login"
+                onPress={() =>
+                  router.replace(role === "admin" ? "/(auth)/admin-login" : "/(auth)/student-login")
+                }
+              >
+                <Text style={styles.linkStrong}> Sign in</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -154,47 +166,9 @@ const makeStyles = (c: ThemeColors) =>
     container: { padding: spacing.lg, paddingBottom: spacing.xl },
     back: { width: 36, height: 36, justifyContent: "center", marginBottom: spacing.md },
     title: { ...typography.largeTitle, color: c.textPrimary, marginBottom: 6 },
-    subtitle: { ...typography.callout, color: c.textSecondary },
-    otpBox: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      backgroundColor: c.inputBg,
-      borderRadius: radius.md,
-      padding: 12,
-      marginBottom: 10,
-    },
-    otpText: { ...typography.caption, color: c.textSecondary, flex: 1 },
-    error: {
-      color: c.danger,
-      ...typography.subhead,
-      marginTop: 4,
-      marginBottom: 4,
-    },
-    centerWrap: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      paddingHorizontal: spacing.lg,
-    },
-    statusIcon: {
-      width: 72,
-      height: 72,
-      borderRadius: 36,
-      alignItems: "center",
-      justifyContent: "center",
-      marginBottom: spacing.lg,
-    },
-    statusTitle: {
-      ...typography.title1,
-      color: c.textPrimary,
-      marginBottom: 10,
-      textAlign: "center",
-    },
-    statusBody: {
-      ...typography.callout,
-      color: c.textSecondary,
-      textAlign: "center",
-      lineHeight: 22,
-    },
+    subtitle: { ...typography.callout, color: c.textSecondary, lineHeight: 22 },
+    error: { color: c.danger, ...typography.subhead, marginTop: 4, marginBottom: 4 },
+    footer: { marginTop: spacing.md, flexDirection: "row", justifyContent: "center" },
+    footerText: { ...typography.subhead, color: c.textSecondary },
+    linkStrong: { ...typography.subhead, color: c.primary, fontWeight: "600" },
   });

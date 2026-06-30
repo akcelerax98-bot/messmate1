@@ -37,17 +37,21 @@ JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "10080"))
 
-# MSG91 — Real SMS OTP. If keys are missing, we fall back to a dev mock OTP.
-MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "").strip()
-MSG91_TEMPLATE_ID = os.environ.get("MSG91_TEMPLATE_ID", "").strip()
-MSG91_SENDER_ID = os.environ.get("MSG91_SENDER_ID", "").strip()
-MSG91_OTP_LENGTH = int(os.environ.get("MSG91_OTP_LENGTH", "6"))
-MSG91_OTP_EXPIRY = int(os.environ.get("MSG91_OTP_EXPIRY", "10"))
-OTP_DEV_MODE_FLAG = os.environ.get("OTP_DEV_MODE", "").strip().lower()
-OTP_DEV_FORCE = OTP_DEV_MODE_FLAG in ("1", "true", "yes")
-MSG91_CONFIGURED = bool(MSG91_AUTH_KEY) and bool(MSG91_TEMPLATE_ID)
-USE_REAL_SMS = MSG91_CONFIGURED and not OTP_DEV_FORCE
-MOCK_OTP = "123456"
+# SMTP Email
+SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+SMTP_PASS = os.environ.get("SMTP_PASS", "").strip()
+FROM_EMAIL = os.environ.get("FROM_EMAIL", SMTP_USER).strip()
+FROM_NAME = os.environ.get("FROM_NAME", "MessMate").strip() or "MessMate"
+SMTP_CONFIGURED = all([SMTP_HOST, SMTP_USER, SMTP_PASS, FROM_EMAIL])
+
+# OTP config
+OTP_LENGTH = int(os.environ.get("OTP_LENGTH", "6"))
+OTP_EXPIRY_MIN = int(os.environ.get("OTP_EXPIRY_MIN", "5"))
+OTP_RESEND_INTERVAL_SEC = int(os.environ.get("OTP_RESEND_INTERVAL_SEC", "60"))
+OTP_MAX_VERIFY_ATTEMPTS = int(os.environ.get("OTP_MAX_VERIFY_ATTEMPTS", "5"))
+RESET_TOKEN_EXPIRY_MIN = int(os.environ.get("RESET_TOKEN_EXPIRY_MIN", "10"))
 
 # Emergent Push Notifications
 EMERGENT_PUSH_BASE_URL = "https://integrations.emergentagent.com"
@@ -64,22 +68,14 @@ wastage_col = db["wastage_records"]
 necessary_info_col = db["necessary_info"]
 settings_col = db["app_settings"]
 notifications_col = db["notifications"]
-otp_attempts_col = db["otp_attempts"]
+email_otps_col = db["email_otps"]
 push_tokens_col = db["push_tokens"]
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
-# Shared async HTTP clients (reused).
-_msg91_client: Optional[httpx.AsyncClient] = None
+# Shared async HTTP client (push relay).
 _push_client: Optional[httpx.AsyncClient] = None
-
-
-def get_msg91_client() -> httpx.AsyncClient:
-    global _msg91_client
-    if _msg91_client is None:
-        _msg91_client = httpx.AsyncClient(timeout=12.0)
-    return _msg91_client
 
 
 def get_push_client() -> httpx.AsyncClient:
@@ -111,32 +107,64 @@ Unit = Literal["pieces", "grams", "kg", "ml", "litres"]
 
 
 class StudentRegisterRequest(BaseModel):
+    """LEGACY \u2014 still accepted to keep old endpoints alive. Prefer /auth/register."""
     full_name: str = Field(..., min_length=1, max_length=120)
     mobile_or_user_id: str = Field(..., min_length=3, max_length=60)
     institution_or_hostel_name: str = Field(..., min_length=1, max_length=120)
-    room_number: str = Field(..., min_length=1, max_length=40)
+    room_number: Optional[str] = Field(default=None, max_length=40)
     password: str = Field(..., min_length=6, max_length=128)
+    email: Optional[str] = None
+
+
+class RegisterRequest(BaseModel):
+    full_name: str = Field(..., min_length=1, max_length=120)
+    email: str = Field(..., min_length=4, max_length=200)
+    password: str = Field(..., min_length=6, max_length=128)
+    confirm_password: Optional[str] = None
+    institution_or_hostel_name: str = Field(..., min_length=1, max_length=120)
+    role: Optional[Literal["student", "admin"]] = "student"
 
 
 class LoginRequest(BaseModel):
-    mobile_or_user_id: str = Field(..., min_length=1)
+    email: str = Field(..., min_length=4, max_length=200)
     password: str = Field(..., min_length=1)
-    institution_or_hostel_name: str = Field(..., min_length=1)
 
 
-class VerifyLoginOtpRequest(BaseModel):
-    challenge: str
+class VerifyEmailRequest(BaseModel):
+    email: str
+    otp: str = Field(..., min_length=4, max_length=10)
+
+
+class ResendOtpEmailRequest(BaseModel):
+    email: str
+    purpose: Literal["registration", "forgot_password"] = "registration"
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(..., min_length=4, max_length=200)
+
+
+class ForgotPasswordVerifyRequest(BaseModel):
+    email: str
     otp: str
+
+
+class ResetPasswordRequest(BaseModel):
+    reset_token: str
+    new_password: str = Field(..., min_length=6, max_length=128)
+    confirm_password: Optional[str] = None
 
 
 class UserPublic(BaseModel):
     id: str
     full_name: str
-    mobile_or_user_id: str
+    email: str
+    mobile_or_user_id: Optional[str] = None  # legacy passthrough
     institution_or_hostel_name: str
     room_number: Optional[str] = None
     role: Role
     approval_status: ApprovalStatus
+    email_verified: bool = False
     created_at: str
     updated_at: str
 
@@ -145,15 +173,6 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserPublic
-
-
-class ChallengeResponse(BaseModel):
-    challenge: str
-    user_preview: Dict[str, Any]
-    masked_mobile: str  # destination, e.g. "+91 98•••••210"
-    delivery: Literal["sms", "dev"]
-    # Only set when delivery == "dev" (development helper).
-    dev_otp: Optional[str] = None
 
 
 class CustomQuestion(BaseModel):
@@ -238,10 +257,6 @@ class RegisterPushBody(BaseModel):
     device_token: str = Field(..., min_length=4, max_length=600)
 
 
-class ResendOtpRequest(BaseModel):
-    challenge: str
-
-
 class ReminderDispatchInput(BaseModel):
     audience: Literal["student", "admin", "all"] = "student"
     title: Optional[str] = None
@@ -294,11 +309,13 @@ def to_public(d: dict) -> UserPublic:
     return UserPublic(
         id=d["id"],
         full_name=d["full_name"],
-        mobile_or_user_id=d["mobile_or_user_id"],
+        email=d.get("email") or d.get("mobile_or_user_id", ""),
+        mobile_or_user_id=d.get("mobile_or_user_id"),
         institution_or_hostel_name=d["institution_or_hostel_name"],
         room_number=d.get("room_number"),
         role=d["role"],
         approval_status=d["approval_status"],
+        email_verified=bool(d.get("email_verified", False)),
         created_at=d["created_at"],
         updated_at=d["updated_at"],
     )
@@ -402,70 +419,213 @@ def project_plan(d: Optional[dict]) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
-# MSG91 SMS OTP service
+# SMTP — Email OTP delivery
 # ---------------------------------------------------------------------------
-MSG91_SEND_URL = "https://control.msg91.com/api/v5/otp"
-MSG91_VERIFY_URL = "https://control.msg91.com/api/v5/otp/verify"
-MSG91_RESEND_URL = "https://control.msg91.com/api/v5/otp/retry"
+import re as _re
+import smtplib as _smtplib
+from email.message import EmailMessage as _EmailMessage
+from email.utils import formataddr as _formataddr
+from fastapi.concurrency import run_in_threadpool as _run_in_threadpool
+
+EMAIL_RE = _re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
 
-def normalize_mobile(raw: str) -> Optional[str]:
-    """Return digits-only mobile (must include country code) or None if not phone-like."""
-    if not raw:
+def is_valid_email(s: str) -> bool:
+    return bool(s) and bool(EMAIL_RE.match(s.strip()))
+
+
+def normalize_email(s: str) -> str:
+    return (s or "").strip().lower()
+
+
+def gen_otp() -> str:
+    """Cryptographically secure N-digit OTP."""
+    n = max(4, OTP_LENGTH)
+    upper = 10 ** n
+    return f"{secrets.randbelow(upper):0{n}d}"
+
+
+def _build_registration_email(user_name: str, otp: str) -> _EmailMessage:
+    msg = _EmailMessage()
+    msg["Subject"] = "Verify Your Email Address"
+    msg["From"] = _formataddr((FROM_NAME, FROM_EMAIL))
+    # `To` is set by send_email_otp
+    text = (
+        f"Hello {user_name},\n\n"
+        f"Welcome to MessMate.\n\n"
+        f"Your verification code is:\n\n"
+        f"{otp}\n\n"
+        f"This code is valid for {OTP_EXPIRY_MIN} minutes.\n\n"
+        f"If you did not request this account, please ignore this email.\n\n"
+        f"Thank you."
+    )
+    html = (
+        f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
+        f"max-width:520px;margin:auto;padding:32px;color:#0B1220\">"
+        f"<h2 style=\"margin:0 0 16px\">Verify your email</h2>"
+        f"<p>Hello <strong>{user_name}</strong>,</p>"
+        f"<p>Welcome to <strong>MessMate</strong>. Your verification code is:</p>"
+        f"<div style=\"font-size:32px;font-weight:700;letter-spacing:8px;"
+        f"background:#EAFBF0;color:#15803D;padding:16px 24px;border-radius:12px;"
+        f"text-align:center;margin:24px 0\">{otp}</div>"
+        f"<p style=\"color:#5B6675\">This code is valid for {OTP_EXPIRY_MIN} minutes.</p>"
+        f"<p style=\"color:#5B6675;font-size:13px\">If you did not request this account, "
+        f"please ignore this email.</p>"
+        f"<hr style=\"border:none;border-top:1px solid #E5E7EB;margin:24px 0\" />"
+        f"<p style=\"color:#9CA3AF;font-size:12px\">— MessMate</p>"
+        f"</div>"
+    )
+    msg.set_content(text)
+    msg.add_alternative(html, subtype="html")
+    return msg
+
+
+def _build_forgot_email(user_name: str, otp: str) -> _EmailMessage:
+    msg = _EmailMessage()
+    msg["Subject"] = "Password Reset Verification Code"
+    msg["From"] = _formataddr((FROM_NAME, FROM_EMAIL))
+    text = (
+        f"Hello {user_name},\n\n"
+        f"Your password reset code is:\n\n"
+        f"{otp}\n\n"
+        f"This code is valid for {OTP_EXPIRY_MIN} minutes.\n\n"
+        f"If you did not request this password reset, please ignore this email.\n\n"
+        f"Thank you."
+    )
+    html = (
+        f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
+        f"max-width:520px;margin:auto;padding:32px;color:#0B1220\">"
+        f"<h2 style=\"margin:0 0 16px\">Password reset</h2>"
+        f"<p>Hello <strong>{user_name}</strong>,</p>"
+        f"<p>Your password reset code is:</p>"
+        f"<div style=\"font-size:32px;font-weight:700;letter-spacing:8px;"
+        f"background:#FEF2F2;color:#B91C1C;padding:16px 24px;border-radius:12px;"
+        f"text-align:center;margin:24px 0\">{otp}</div>"
+        f"<p style=\"color:#5B6675\">This code is valid for {OTP_EXPIRY_MIN} minutes.</p>"
+        f"<p style=\"color:#5B6675;font-size:13px\">If you did not request a password reset, "
+        f"please ignore this email.</p>"
+        f"<hr style=\"border:none;border-top:1px solid #E5E7EB;margin:24px 0\" />"
+        f"<p style=\"color:#9CA3AF;font-size:12px\">— MessMate</p>"
+        f"</div>"
+    )
+    msg.set_content(text)
+    msg.add_alternative(html, subtype="html")
+    return msg
+
+
+def _smtp_send_sync(to: str, msg: _EmailMessage) -> None:
+    msg["To"] = to
+    # Use STARTTLS on 587 (Gmail). Use SSL on 465.
+    if SMTP_PORT == 465:
+        with _smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+    else:
+        with _smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+
+
+async def send_email_otp(
+    *, to: str, user_name: str, otp: str, purpose: str
+) -> bool:
+    """Send an OTP via SMTP. Returns True on success, False on failure.
+
+    When SMTP is NOT configured, we log the OTP to backend stdout (dev mode).
+    """
+    if not SMTP_CONFIGURED:
+        logger.warning(
+            "[DEV-OTP] purpose=%s to=%s otp=%s (SMTP not configured — set SMTP_HOST/USER/PASS)",
+            purpose, to, otp,
+        )
+        return True
+    builder = _build_forgot_email if purpose == "forgot_password" else _build_registration_email
+    msg = builder(user_name, otp)
+    try:
+        await _run_in_threadpool(_smtp_send_sync, to, msg)
+        return True
+    except Exception as e:
+        logger.error("SMTP send failed to=%s purpose=%s err=%s", to, purpose, e)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Email OTP store
+# ---------------------------------------------------------------------------
+async def store_email_otp(*, email: str, purpose: str, otp: str) -> None:
+    """Hash + upsert. ALWAYS replaces any existing OTP for this (email, purpose)."""
+    now_dt = datetime.now(timezone.utc)
+    await email_otps_col.update_one(
+        {"email": email, "purpose": purpose},
+        {"$set": {
+            "email": email,
+            "purpose": purpose,
+            "otp_hash": pwd_context.hash(otp),
+            "created_at": now_dt.isoformat(),
+            "expires_at": (now_dt + timedelta(minutes=OTP_EXPIRY_MIN)).isoformat(),
+            "verified": False,
+            "attempts": 0,
+        }},
+        upsert=True,
+    )
+
+
+async def consume_email_otp(*, email: str, purpose: str, submitted: str) -> Dict[str, Any]:
+    """Returns {ok, error?, doc?}.
+
+    - ok=True only on exact match + not expired + not over-attempted.
+    - Side effects: increments attempts on miss; deletes on success.
+    """
+    doc = await email_otps_col.find_one({"email": email, "purpose": purpose})
+    if not doc:
+        return {"ok": False, "error": "Invalid OTP"}
+    # Expiry
+    try:
+        exp = datetime.fromisoformat(doc["expires_at"])
+    except Exception:
+        exp = datetime.now(timezone.utc) - timedelta(seconds=1)
+    if exp <= datetime.now(timezone.utc):
+        await email_otps_col.delete_one({"_id": doc["_id"]})
+        return {"ok": False, "error": "OTP expired"}
+    # Attempts
+    if doc.get("attempts", 0) >= OTP_MAX_VERIFY_ATTEMPTS:
+        await email_otps_col.delete_one({"_id": doc["_id"]})
+        return {"ok": False, "error": "Too many attempts. Please request a new OTP."}
+    # Match
+    try:
+        match = pwd_context.verify(submitted.strip(), doc["otp_hash"])
+    except Exception:
+        match = False
+    if not match:
+        await email_otps_col.update_one({"_id": doc["_id"]}, {"$inc": {"attempts": 1}})
+        return {"ok": False, "error": "Invalid OTP"}
+    # Success — delete it immediately
+    await email_otps_col.delete_one({"_id": doc["_id"]})
+    return {"ok": True, "doc": doc}
+
+
+async def can_resend_otp(*, email: str, purpose: str) -> Optional[int]:
+    """If still within cooldown, returns seconds remaining; else None."""
+    doc = await email_otps_col.find_one({"email": email, "purpose": purpose})
+    if not doc:
         return None
-    digits = "".join(ch for ch in raw if ch.isdigit())
-    if len(digits) == 10:  # bare Indian mobile — prepend 91
-        digits = "91" + digits
-    if 10 <= len(digits) <= 15:
-        return digits
+    try:
+        created = datetime.fromisoformat(doc["created_at"])
+    except Exception:
+        return None
+    elapsed = (datetime.now(timezone.utc) - created).total_seconds()
+    if elapsed < OTP_RESEND_INTERVAL_SEC:
+        return int(OTP_RESEND_INTERVAL_SEC - elapsed)
     return None
 
 
-def mask_mobile(raw: str) -> str:
-    if not raw:
-        return ""
-    if len(raw) <= 4:
-        return raw
-    return raw[:-4].replace(raw[2:-4], "•" * max(0, len(raw) - 6)) + raw[-4:]
-
-
-async def msg91_send_otp(mobile: str, otp: str) -> Dict[str, Any]:
-    """Send OTP via MSG91. Raises HTTPException on failure."""
-    cli = get_msg91_client()
-    headers = {"authkey": MSG91_AUTH_KEY, "Content-Type": "application/json"}
-    params: Dict[str, Any] = {
-        "template_id": MSG91_TEMPLATE_ID,
-        "mobile": mobile,
-        "otp": otp,
-        "otp_length": MSG91_OTP_LENGTH,
-        "otp_expiry": MSG91_OTP_EXPIRY,
-    }
-    if MSG91_SENDER_ID:
-        params["sender"] = MSG91_SENDER_ID
-    try:
-        resp = await cli.post(MSG91_SEND_URL, headers=headers, params=params)
-        data = resp.json() if resp.content else {}
-    except Exception as e:
-        logger.error("MSG91 send failed: %s", e)
-        raise HTTPException(status_code=502, detail="SMS provider unreachable")
-    if resp.status_code != 200 or data.get("type") != "success":
-        logger.warning("MSG91 send error: %s %s", resp.status_code, data)
-        msg = (data or {}).get("message") or "Failed to send OTP"
-        raise HTTPException(status_code=400, detail=str(msg))
-    return data
-
-
-async def msg91_verify_otp(mobile: str, otp: str) -> bool:
-    cli = get_msg91_client()
-    headers = {"authkey": MSG91_AUTH_KEY}
-    params = {"mobile": mobile, "otp": otp}
-    try:
-        resp = await cli.get(MSG91_VERIFY_URL, headers=headers, params=params)
-        data = resp.json() if resp.content else {}
-    except Exception as e:
-        logger.error("MSG91 verify failed: %s", e)
-        raise HTTPException(status_code=502, detail="SMS provider unreachable")
-    return resp.status_code == 200 and data.get("type") == "success"
+async def purge_expired_otps() -> int:
+    cutoff = datetime.now(timezone.utc).isoformat()
+    res = await email_otps_col.delete_many({"expires_at": {"$lt": cutoff}})
+    return getattr(res, "deleted_count", 0)
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +641,6 @@ async def send_push(
         return
     if "title" not in data or "message" not in data:
         raise ValueError("push data must include title and message")
-    # Chunk into 100s
     cli = get_push_client()
     for i in range(0, len(recipients), 100):
         chunk = recipients[i:i + 100]
@@ -500,201 +659,254 @@ async def send_push(
 
 
 # ---------------------------------------------------------------------------
-# Auth
+# Auth — Email OTP
 # ---------------------------------------------------------------------------
 @api.get("/")
 async def root():
     return {"app": "MessMate", "status": "ok"}
 
 
-@api.post("/auth/register-student", response_model=UserPublic, status_code=201)
-async def register_student(payload: StudentRegisterRequest):
-    existing = await users_col.find_one(
-        {"mobile_or_user_id": payload.mobile_or_user_id,
-         "institution_or_hostel_name": payload.institution_or_hostel_name},
-        {"_id": 0},
-    )
+@api.post("/auth/register", response_model=Dict[str, Any], status_code=201)
+async def register(payload: RegisterRequest):
+    """Create unverified account + send email OTP."""
+    email = normalize_email(payload.email)
+    if not is_valid_email(email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address")
+    if payload.confirm_password is not None and payload.password != payload.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+
+    await purge_expired_otps()
+
+    existing = await users_col.find_one({"email": email}, {"_id": 0})
     if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="An account with this mobile number already exists in this hostel",
+        if existing.get("email_verified"):
+            raise HTTPException(status_code=400, detail="Email already registered")
+        # Unverified: refresh details + resend OTP (don't fail)
+        now = now_iso()
+        await users_col.update_one(
+            {"id": existing["id"]},
+            {"$set": {
+                "full_name": payload.full_name.strip(),
+                "institution_or_hostel_name": payload.institution_or_hostel_name.strip(),
+                "password_hash": hash_password(payload.password),
+                "updated_at": now,
+            }},
         )
-
-    now = now_iso()
-    doc = {
-        "id": str(uuid.uuid4()),
-        "full_name": payload.full_name.strip(),
-        "mobile_or_user_id": payload.mobile_or_user_id.strip(),
-        "institution_or_hostel_name": payload.institution_or_hostel_name.strip(),
-        "room_number": payload.room_number.strip(),
-        "password_hash": hash_password(payload.password),
-        "role": "student",
-        "approval_status": "pending",
-        "created_at": now,
-        "updated_at": now,
-    }
-    await users_col.insert_one(doc)
-    doc.pop("_id", None)
-    return to_public(doc)
-
-
-@api.post("/auth/login", response_model=ChallengeResponse)
-async def login_step1(payload: LoginRequest):
-    """Step 1: validate credentials, send OTP via MSG91 (or dev fallback)."""
-    user = await users_col.find_one(
-        {
-            "mobile_or_user_id": payload.mobile_or_user_id.strip(),
-            "institution_or_hostel_name": payload.institution_or_hostel_name.strip(),
-        },
-        {"_id": 0},
-    )
-    if not user or not verify_password(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    mobile_digits = normalize_mobile(user["mobile_or_user_id"])
-    use_sms = USE_REAL_SMS and bool(mobile_digits)
-
-    if use_sms:
-        otp_code = f"{secrets.randbelow(10 ** MSG91_OTP_LENGTH):0{MSG91_OTP_LENGTH}d}"
+        user_doc = await users_col.find_one({"id": existing["id"]}, {"_id": 0})
     else:
-        otp_code = MOCK_OTP
+        now = now_iso()
+        role = payload.role or "student"
+        # First admin to register for a brand-new institution auto-approves; otherwise pending.
+        is_first_admin = False
+        if role == "admin":
+            count = await users_col.count_documents({
+                "role": "admin",
+                "institution_or_hostel_name": payload.institution_or_hostel_name.strip(),
+            })
+            is_first_admin = count == 0
+        user_doc = {
+            "id": str(uuid.uuid4()),
+            "full_name": payload.full_name.strip(),
+            "email": email,
+            # legacy: keep mobile_or_user_id as a duplicate of email for downstream code
+            "mobile_or_user_id": email,
+            "institution_or_hostel_name": payload.institution_or_hostel_name.strip(),
+            "password_hash": hash_password(payload.password),
+            "role": role,
+            "approval_status": "approved" if (role == "admin" and is_first_admin) else ("pending" if role == "student" else "approved"),
+            "email_verified": False,
+            "created_at": now,
+            "updated_at": now,
+        }
+        await users_col.insert_one(user_doc)
 
-    challenge_id = str(uuid.uuid4())
-    challenge = create_token(
-        {"sub": user["id"], "type": "challenge", "cid": challenge_id},
-        minutes=MSG91_OTP_EXPIRY if use_sms else 10,
+    # Throttle: only mint a new OTP if cooldown elapsed
+    wait_s = await can_resend_otp(email=email, purpose="registration")
+    if wait_s is not None:
+        # Don't reveal the OTP; ask user to wait
+        return {
+            "status": "verification_required",
+            "email": email,
+            "resend_available_in": wait_s,
+            "message": "Verification code already sent. Check your inbox.",
+        }
+
+    otp = gen_otp()
+    await store_email_otp(email=email, purpose="registration", otp=otp)
+    ok = await send_email_otp(
+        to=email, user_name=user_doc["full_name"], otp=otp, purpose="registration",
     )
-    now = now_iso()
-    await otp_attempts_col.insert_one({
-        "id": challenge_id,
-        "user_id": user["id"],
-        "mobile": mobile_digits or "",
-        "otp_hash": pwd_context.hash(otp_code),
-        "delivery": "sms" if use_sms else "dev",
-        "verified": False,
-        "attempts": 0,
-        "created_at": now,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(
-            minutes=MSG91_OTP_EXPIRY if use_sms else 10
-        )).isoformat(),
-    })
-
-    if use_sms:
-        try:
-            await msg91_send_otp(mobile_digits, otp_code)  # type: ignore[arg-type]
-        except HTTPException:
-            # Roll back challenge so the user can retry
-            await otp_attempts_col.delete_one({"id": challenge_id})
-            raise
-
-    return ChallengeResponse(
-        challenge=challenge,
-        user_preview={
-            "full_name": user["full_name"],
-            "role": user["role"],
-            "mobile_or_user_id": user["mobile_or_user_id"],
-            "institution_or_hostel_name": user["institution_or_hostel_name"],
-        },
-        masked_mobile=mask_mobile(mobile_digits) if mobile_digits else user["mobile_or_user_id"],
-        delivery="sms" if use_sms else "dev",
-        dev_otp=None if use_sms else otp_code,
-    )
+    if not ok and SMTP_CONFIGURED:
+        # roll back OTP record so user can retry
+        await email_otps_col.delete_one({"email": email, "purpose": "registration"})
+        raise HTTPException(status_code=502, detail="Could not send verification email. Please try again.")
+    return {
+        "status": "verification_required",
+        "email": email,
+        "resend_available_in": OTP_RESEND_INTERVAL_SEC,
+        "expires_in": OTP_EXPIRY_MIN * 60,
+    }
 
 
-@api.post("/auth/verify-login-otp", response_model=TokenResponse)
-async def login_step2(payload: VerifyLoginOtpRequest):
-    """Step 2: verify OTP for the challenge → issue access token."""
-    try:
-        decoded = jwt.decode(payload.challenge, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=400, detail="Challenge expired — please log in again")
-
-    if decoded.get("type") != "challenge":
-        raise HTTPException(status_code=400, detail="Invalid challenge")
-
-    cid = decoded.get("cid")
-    attempt = await otp_attempts_col.find_one({"id": cid}, {"_id": 0}) if cid else None
-    submitted = payload.otp.strip()
-
-    verified = False
-    if attempt:
-        if attempt.get("verified"):
-            raise HTTPException(status_code=400, detail="OTP already used. Please log in again.")
-        if attempt.get("attempts", 0) >= 5:
-            raise HTTPException(status_code=429, detail="Too many incorrect attempts. Try again later.")
-        # Validate via stored hash
-        try:
-            if pwd_context.verify(submitted, attempt["otp_hash"]):
-                verified = True
-        except Exception:
-            verified = False
-        # If this came via real SMS, also confirm with MSG91 (defence-in-depth)
-        if verified and attempt.get("delivery") == "sms" and attempt.get("mobile"):
-            try:
-                ok = await msg91_verify_otp(attempt["mobile"], submitted)
-                # MSG91 invalidates after first verify — treat True OR mismatch-on-double-call as success.
-                if not ok:
-                    # Accept local match; MSG91 may have already invalidated. Log and continue.
-                    logger.info("MSG91 verify said no, but local hash matched (likely already consumed)")
-            except HTTPException:
-                pass  # don't block — local hash matched
-        if not verified:
-            await otp_attempts_col.update_one({"id": cid}, {"$inc": {"attempts": 1}})
-    elif submitted == MOCK_OTP and not MSG91_CONFIGURED:
-        # Legacy fallback if attempt record was lost
-        verified = True
-
-    if not verified:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    if attempt:
-        await otp_attempts_col.update_one(
-            {"id": cid}, {"$set": {"verified": True, "verified_at": now_iso()}}
-        )
-
-    user = await get_user_by_id(decoded["sub"])
+@api.post("/auth/verify-email", response_model=TokenResponse)
+async def verify_email(payload: VerifyEmailRequest):
+    """Verify the registration OTP → mark verified → auto-login."""
+    email = normalize_email(payload.email)
+    user = await users_col.find_one({"email": email}, {"_id": 0})
     if not user:
-        raise HTTPException(status_code=401, detail="User no longer exists")
+        raise HTTPException(status_code=404, detail="Account not found")
+    if user.get("email_verified"):
+        # Re-issue access token rather than failing.
+        token = create_token({"sub": user["id"], "role": user["role"],
+                              "status": user["approval_status"]})
+        return TokenResponse(access_token=token, user=to_public(user))
 
-    token = create_token({
-        "sub": user["id"], "role": user["role"], "status": user["approval_status"],
-    })
+    result = await consume_email_otp(email=email, purpose="registration", submitted=payload.otp)
+    if not result["ok"]:
+        err = result.get("error") or "Invalid OTP"
+        code = 410 if err == "OTP expired" else 400
+        raise HTTPException(status_code=code, detail=err)
+
+    now = now_iso()
+    await users_col.update_one(
+        {"id": user["id"]},
+        {"$set": {"email_verified": True, "updated_at": now}},
+    )
+    user["email_verified"] = True
+    user["updated_at"] = now
+    token = create_token({"sub": user["id"], "role": user["role"],
+                          "status": user["approval_status"]})
+    return TokenResponse(access_token=token, user=to_public(user))
+
+
+@api.post("/auth/login", response_model=TokenResponse)
+async def login_email(payload: LoginRequest):
+    """Single-step email + password login. Verified accounts get a token."""
+    email = normalize_email(payload.email)
+    user = await users_col.find_one({"email": email}, {"_id": 0})
+    if not user or not verify_password(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not user.get("email_verified"):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "email_not_verified",
+                "message": "Please verify your email to continue.",
+                "email": email,
+            },
+        )
+    token = create_token({"sub": user["id"], "role": user["role"],
+                          "status": user["approval_status"]})
     return TokenResponse(access_token=token, user=to_public(user))
 
 
 @api.post("/auth/resend-otp")
-async def resend_otp(payload: ResendOtpRequest):
-    """Resend OTP for an existing challenge. Issues a fresh code via MSG91."""
-    try:
-        decoded = jwt.decode(payload.challenge, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=400, detail="Challenge expired — please log in again")
-    if decoded.get("type") != "challenge":
-        raise HTTPException(status_code=400, detail="Invalid challenge")
-    cid = decoded.get("cid")
-    attempt = await otp_attempts_col.find_one({"id": cid}, {"_id": 0}) if cid else None
-    if not attempt:
-        raise HTTPException(status_code=400, detail="Challenge not found — please log in again")
-    if attempt.get("verified"):
-        raise HTTPException(status_code=400, detail="OTP already used")
+async def resend_otp(payload: ResendOtpEmailRequest):
+    """Resend OTP for registration or forgot_password. 60-second cooldown."""
+    email = normalize_email(payload.email)
+    purpose = payload.purpose
+    user = await users_col.find_one({"email": email}, {"_id": 0})
+    if not user:
+        # Don't leak existence for forgot password
+        if purpose == "forgot_password":
+            return {"status": "ok", "resend_available_in": OTP_RESEND_INTERVAL_SEC}
+        raise HTTPException(status_code=404, detail="Account not found")
 
-    use_sms = attempt.get("delivery") == "sms" and bool(attempt.get("mobile"))
-    if use_sms:
-        otp_code = f"{secrets.randbelow(10 ** MSG91_OTP_LENGTH):0{MSG91_OTP_LENGTH}d}"
-    else:
-        otp_code = MOCK_OTP
-    await otp_attempts_col.update_one(
-        {"id": cid},
-        {"$set": {"otp_hash": pwd_context.hash(otp_code), "attempts": 0,
-                   "resent_at": now_iso()}},
+    if purpose == "registration" and user.get("email_verified"):
+        raise HTTPException(status_code=400, detail="Email already verified. Please log in.")
+
+    wait_s = await can_resend_otp(email=email, purpose=purpose)
+    if wait_s is not None:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Please wait {wait_s}s before requesting another code.",
+        )
+
+    otp = gen_otp()
+    await store_email_otp(email=email, purpose=purpose, otp=otp)
+    ok = await send_email_otp(
+        to=email, user_name=user["full_name"], otp=otp, purpose=purpose,
     )
-    if use_sms:
-        await msg91_send_otp(attempt["mobile"], otp_code)
-    return {
-        "delivery": "sms" if use_sms else "dev",
-        "dev_otp": None if use_sms else otp_code,
-        "masked_mobile": mask_mobile(attempt.get("mobile", "")) if use_sms else "",
-    }
+    if not ok and SMTP_CONFIGURED:
+        await email_otps_col.delete_one({"email": email, "purpose": purpose})
+        raise HTTPException(status_code=502, detail="Could not send email")
+    return {"status": "ok", "resend_available_in": OTP_RESEND_INTERVAL_SEC,
+            "expires_in": OTP_EXPIRY_MIN * 60}
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(payload: ForgotPasswordRequest):
+    """Start the password-reset flow. Always returns 200 — never leak existence."""
+    email = normalize_email(payload.email)
+    user = await users_col.find_one({"email": email}, {"_id": 0})
+    if not user:
+        # Silent OK (anti-enumeration)
+        return {"status": "ok", "resend_available_in": OTP_RESEND_INTERVAL_SEC,
+                "expires_in": OTP_EXPIRY_MIN * 60}
+
+    wait_s = await can_resend_otp(email=email, purpose="forgot_password")
+    if wait_s is not None:
+        return {"status": "ok", "resend_available_in": wait_s,
+                "expires_in": OTP_EXPIRY_MIN * 60}
+
+    otp = gen_otp()
+    await store_email_otp(email=email, purpose="forgot_password", otp=otp)
+    await send_email_otp(
+        to=email, user_name=user["full_name"], otp=otp, purpose="forgot_password",
+    )
+    return {"status": "ok", "resend_available_in": OTP_RESEND_INTERVAL_SEC,
+            "expires_in": OTP_EXPIRY_MIN * 60}
+
+
+@api.post("/auth/forgot-password/verify")
+async def forgot_password_verify(payload: ForgotPasswordVerifyRequest):
+    """Verify forgot-password OTP → mint a short-lived reset token (not deleted yet)."""
+    email = normalize_email(payload.email)
+    user = await users_col.find_one({"email": email}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    result = await consume_email_otp(
+        email=email, purpose="forgot_password", submitted=payload.otp,
+    )
+    if not result["ok"]:
+        err = result.get("error") or "Invalid OTP"
+        code = 410 if err == "OTP expired" else 400
+        raise HTTPException(status_code=code, detail=err)
+
+    reset_token = create_token(
+        {"sub": user["id"], "email": email, "type": "reset"},
+        minutes=RESET_TOKEN_EXPIRY_MIN,
+    )
+    return {"reset_token": reset_token, "expires_in": RESET_TOKEN_EXPIRY_MIN * 60}
+
+
+@api.post("/auth/reset-password", response_model=TokenResponse)
+async def reset_password(payload: ResetPasswordRequest):
+    """Use the reset_token to set a new password + auto-login."""
+    if payload.confirm_password is not None and payload.new_password != payload.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+    try:
+        decoded = jwt.decode(payload.reset_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Reset link expired. Please start over.")
+    if decoded.get("type") != "reset":
+        raise HTTPException(status_code=400, detail="Invalid reset token")
+
+    user = await users_col.find_one({"id": decoded.get("sub")}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    now = now_iso()
+    new_hash = hash_password(payload.new_password)
+    await users_col.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": new_hash, "updated_at": now}},
+    )
+    user["password_hash"] = new_hash
+    user["updated_at"] = now
+    token = create_token({"sub": user["id"], "role": user["role"],
+                          "status": user["approval_status"]})
+    return TokenResponse(access_token=token, user=to_public(user))
 
 
 @api.get("/auth/me", response_model=UserPublic)
@@ -1630,9 +1842,21 @@ async def admin_settings_put(payload: AppSettingsInput, u: dict = Depends(requir
 async def _ensure_indexes_and_migrate():
     """Create indexes for hostel-scoped collections. Idempotent."""
     await users_col.create_index("id", unique=True)
-    await users_col.create_index(
-        [("mobile_or_user_id", 1), ("institution_or_hostel_name", 1)], unique=True
-    )
+    # New: email is the global unique identifier.
+    # Use a partial filter so legacy/no-email rows don't conflict.
+    try:
+        idxs = await users_col.index_information()
+        if "mobile_or_user_id_1_institution_or_hostel_name_1" in idxs:
+            await users_col.drop_index("mobile_or_user_id_1_institution_or_hostel_name_1")
+        if "email_1" not in idxs:
+            await users_col.create_index(
+                "email",
+                unique=True,
+                partialFilterExpression={"email": {"$exists": True, "$type": "string"}},
+                name="email_1",
+            )
+    except Exception:
+        pass
     # menus
     try:
         idxs = await menus_col.index_information()
@@ -1680,9 +1904,11 @@ async def _ensure_indexes_and_migrate():
     await settings_col.create_index("hostel", unique=True)
     # notifications
     await notifications_col.create_index([("hostel", 1), ("created_at", -1)])
-    # otp attempts
-    await otp_attempts_col.create_index("id", unique=True)
-    await otp_attempts_col.create_index("expires_at")
+    # email otps
+    await email_otps_col.create_index(
+        [("email", 1), ("purpose", 1)], unique=True
+    )
+    await email_otps_col.create_index("expires_at")
     # push tokens
     await push_tokens_col.create_index(
         [("user_id", 1), ("device_token", 1)], unique=True
@@ -1701,20 +1927,15 @@ async def _ensure_indexes_and_migrate():
 @app.on_event("startup")
 async def on_startup():
     await _ensure_indexes_and_migrate()
-    if MSG91_CONFIGURED and not OTP_DEV_FORCE:
-        logger.info("MessMate API ready — real MSG91 SMS OTP active")
+    if SMTP_CONFIGURED:
+        logger.info("MessMate API ready — SMTP email OTP active (%s)", SMTP_HOST)
     else:
-        logger.info("MessMate API ready — DEV OTP mode (MOCK 123456). Set MSG91_AUTH_KEY+MSG91_TEMPLATE_ID to enable real SMS.")
+        logger.info("MessMate API ready — SMTP NOT configured. OTPs are logged to console (dev mode).")
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
     client.close()
-    try:
-        if _msg91_client is not None:
-            await _msg91_client.aclose()
-    except Exception:
-        pass
     try:
         if _push_client is not None:
             await _push_client.aclose()

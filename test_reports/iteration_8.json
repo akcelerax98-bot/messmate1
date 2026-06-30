@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 8 backend testing complete — 33/33 pytest passing in /app/backend/tests/test_iteration8_email_otp.py. Verified the new EMAIL-OTP auth system end-to-end: (1) POST /auth/register → 201 {status:'verification_required', email, resend_available_in:60, expires_in:300}; no OTP ever leaked in the response; user row created with email_verified=false, role=student, approval_status=pending; email_otps doc contains bcrypt otp_hash + attempts=0 + 5-min expires_at. (2) First admin per brand-new institution auto-approves (role=admin, approval_status=approved). (3) Re-registering an unverified email refreshes full_name/hostel/password + replaces otp_hash. Re-registering a VERIFIED email → 400 'Email already registered'. (4) verify-email wrong OTP → 400 'Invalid OTP' and increments attempts; 5 wrong attempts → on 6th call returns 400 'Too many attempts' and DELETES the OTP doc. (5) verify-email correct OTP → 200 {access_token, user:{email_verified:true}}; OTP doc deleted from email_otps; user row updated. (6) verify-email on already-verified account is idempotent (returns 200 token even with wrong OTP). (7) Login wrong password → 401 'Invalid email or password'. Login unverified → 403 with detail {code:'email_not_verified', message, email}. Login verified → 200 TokenResponse. (8) resend-otp within 60s cooldown → 429 'Please wait Ns'. After cooldown (DB-aged) → 200, otp_hash REPLACED. resend-otp on verified account → 400 'Email already verified'. (9) forgot-password on existing email → 200 ok, creates email_otps purpose='forgot_password'. On non-existing email → 200 ok (anti-enumeration — never leaks existence). Rapid second call → 200 with reduced resend_available_in (no new OTP minted). (10) forgot-password/verify wrong OTP → 400, correct → 200 {reset_token, expires_in:600}; OTP deleted; re-using same OTP → 400. (11) reset-password mismatched passwords → 400; invalid/expired JWT token → 400; valid token → 200 {access_token, user}; subsequent login with NEW password succeeds, OLD password → 401. (12) OTP expiry test: forcibly aged expires_at past current time → verify-email returns 410 'OTP expired' and removes the doc. (13) Cryptographic randomness: 10 sequential register calls produced 10 distinct bcrypt otp_hash values. (14) Indexes verified live: email_otps has unique compound (email,purpose) index; users has unique partial index on email. (15) Regression on new-auth tokens: /admin/dashboard, /admin/students, /admin/notifications, /admin/notifications/dispatch-reminder, /student/today, /auth/push-token, /register-push all return 2xx. All test data is TEST_-prefixed and cleaned up post-run. SMTP is configured (Gmail App Password) so register/forgot calls in the test suite DO send real emails to elsewe.tech@gmail.com — recommend rate-limiting future test runs or rotating to a throwaway address.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/register (and resend-otp/forgot-password)", "issue": "Tests send real Gmail SMTP messages to elsewe.tech@gmail.com for every register call (~15 emails per test run). Not a code bug, but Gmail enforces a ~500/day send cap on App Passwords. Consider adding an OTP_DEV_MODE env flag that logs OTP to stdout and short-circuits send_email_otp during automated testing."},
+      {"endpoint": "server.py:1286", "issue": "admin_dispatch_reminder builds the `audience` field with a redundant conditional that always evaluates to 'all' or 'student' (never 'admin' — admin path is collapsed to 'all'). Cosmetic only; the recipients list itself is correct via _recipients_for()."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8_email_otp.py",
+    "/app/test_reports/pytest/iteration_8.xml"
+  ],
+  "action_items": [
+    "All 19 spec items in the review request pass — no code changes required.",
+    "Update /app/memory/test_credentials.md: it still documents the OLD mobile/MSG91 OTP flow with `dev_otp:123456`. It must be rewritten for the new email-OTP flow (register → verify-email → login; forgot-password → forgot-password/verify → reset-password). The current file will mislead the next testing agent.",
+    "Legacy tests /app/backend/tests/test_auth.py, test_admin.py, test_student.py, test_iteration6.py, test_iteration7.py still target the removed mobile OTP endpoints (/auth/register-student, /auth/verify-login-otp) and will fail if rerun. Delete or migrate them.",
+    "Optional: add OTP_DEV_MODE flag in backend/.env so the test suite doesn't send real emails on every run."
+  ],
+  "critical_code_review_comments": [
+    "server.py:441-445 — gen_otp uses secrets.randbelow with proper zero-padding via f-string. Cryptographically secure. Good.",
+    "server.py:558-573 — store_email_otp upserts with bcrypt hash + 5-min expiry + attempts=0; ALWAYS replaces existing doc (correct behavior for resend).",
+    "server.py:576-607 — consume_email_otp: deletes on expiry, deletes on overflow attempts BEFORE matching, atomic $inc on miss, deletes on success. Edge cases all covered.",
+    "server.py:610-622 — can_resend_otp uses elapsed since created_at against OTP_RESEND_INTERVAL_SEC. Correct.",
+    "server.py:669-748 — register endpoint: validates email regex, allows confirm_password mismatch check, handles unverified re-registration by refreshing fields, handles SMTP failure by rolling back OTP record (502).",
+    "server.py:782-800 — login validates credentials BEFORE checking verification status (no user-enumeration via timing on unverified accounts).",
+    "server.py:837-858 — forgot-password silent-200 on non-existing email AND on rapid second call (no enumeration leak; does not even call SMTP if cooldown active). Good.",
+    "server.py:883-909 — reset-password decodes JWT with `type:'reset'` check; mismatched type → 400; password changed; auto-login. Clean.",
+    "server.py:1908-1911 — startup creates unique compound (email,purpose) index on email_otps + non-unique expires_at index for purge. Verified live.",
+    "server.py:1851-1857 — users.email partial unique index correctly limits uniqueness to docs that actually have a string email field (allows legacy/no-email rows to coexist).",
+    "server.py is 1955 lines — still well over the 700-line guideline. Recommend splitting into routers in a follow-up.",
+    "verify_email auto-issues a token even when approval_status='pending' (student). This is INTENDED per the spec ('auto-login after verification') but the student then cannot call any /student/* endpoints until an admin approves. Consider returning a hint flag like `requires_approval:true` in the user payload so the mobile app can route to the right screen."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration8_email_otp.py — NEW (33 tests, 100% pass)",
+    "/app/test_reports/pytest/iteration_8.xml — NEW (junit xml)",
+    "/app/test_reports/iteration_8.json — NEW"
+  ],
+  "success_rate": {
+    "backend": "100% (33/33 pytest)",
+    "frontend": "not tested (review_request is backend-only)"
+  },
+  "seed_data_creation": "None. Tests create their own TEST_-prefixed users, hostels, and OTP docs and clean them up in a session-scoped fixture teardown. Verified no residual TEST_ data remains in users/email_otps post-run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 8 locks the new email-OTP auth: register → email_otps doc (bcrypt-hashed) → verify-email consumes-and-deletes → token. Login is single-step. Forgot password is email→OTP→reset_token(JWT type:'reset', 10 min)→reset-password. The OTP is NEVER returned in API responses. To test verification flows, the canonical pattern is: (1) POST /auth/register (sends real email via Gmail SMTP), (2) overwrite the otp_hash directly in MongoDB to a known value using passlib.CryptContext(schemes=['bcrypt']).hash('424242'), (3) POST /auth/verify-email with the known OTP. For brute-force, post 5 wrong OTPs then check the 6th returns 'Too many attempts'. For cooldown bypass, age the email_otps.created_at backwards by >60s in MongoDB. For expiry, set expires_at to past. /app/memory/test_credentials.md is STALE — still documents the old mobile/MSG91 flow; main agent should update it. SMTP is live (sends to elsewe.tech@gmail.com); consider adding an OTP_DEV_MODE bypass for CI. EXPO_PUBLIC_BACKEND_URL is the public env var. The five legacy test files (test_auth.py, test_admin.py, test_student.py, test_iteration6.py, test_iteration7.py) target removed endpoints and should be deleted.",
+  "rca_of_issue": "N/A — all 33 tests passed on the first run, no defects in the new email-OTP implementation."
+}

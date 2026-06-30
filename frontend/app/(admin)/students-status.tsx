@@ -27,7 +27,7 @@ import { LikeDislikeBar } from "@/src/components/LikeDislikeBar";
 import { Segmented } from "@/src/components/Segmented";
 import { StatTile } from "@/src/components/StatTile";
 import { Toast } from "@/src/components/Toast";
-import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
+import { radius, shadow, spacing, typography, colors, useTheme, type ThemeColors } from "@/src/theme";
 
 const MEAL_ICON: Record<MealType, keyof typeof Feather.glyphMap> = {
   breakfast: "coffee",
@@ -194,7 +194,7 @@ export default function AdminStudentsStatus() {
           </View>
         ) : (
           pending.map((s) => (
-            <View key={s.id} style={styles.studentCard} testID={`pending-${s.mobile_or_user_id}`}>
+            <View key={s.id} style={styles.studentCard} testID={`pending-${s.id}`}>
               <View style={styles.studentRow}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarLetter}>
@@ -204,16 +204,16 @@ export default function AdminStudentsStatus() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.studentName}>{s.full_name}</Text>
                   <Text style={styles.studentMeta}>
-                    {s.mobile_or_user_id} · Room {s.room_number || "—"}
+                    {s.email || s.mobile_or_user_id}
                   </Text>
                   <Text style={styles.studentMeta}>{s.institution_or_hostel_name}</Text>
                 </View>
               </View>
               <View style={styles.actionRow}>
                 <TouchableOpacity
-                  testID={`approve-${s.mobile_or_user_id}`}
+                  testID={`approve-${s.id}`}
                   activeOpacity={0.85}
-                  style={[styles.actBtn, { backgroundColor: colors.primary }]}
+                  style={[styles.actBtn, { backgroundColor: c.primary }]}
                   onPress={() => onApprove(s.id)}
                   disabled={acting === s.id}
                 >
@@ -221,14 +221,14 @@ export default function AdminStudentsStatus() {
                   <Text style={styles.actBtnText}>Approve</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  testID={`reject-${s.mobile_or_user_id}`}
+                  testID={`reject-${s.id}`}
                   activeOpacity={0.85}
-                  style={[styles.actBtn, { backgroundColor: colors.inputBg }]}
+                  style={[styles.actBtn, { backgroundColor: c.inputBg }]}
                   onPress={() => onReject(s.id)}
                   disabled={acting === s.id}
                 >
-                  <Feather name="x" size={16} color={colors.danger} />
-                  <Text style={[styles.actBtnText, { color: colors.danger }]}>
+                  <Feather name="x" size={16} color={c.danger} />
+                  <Text style={[styles.actBtnText, { color: c.danger }]}>
                     Reject
                   </Text>
                 </TouchableOpacity>

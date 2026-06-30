@@ -10,13 +10,13 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.messmate.app",
+      "bundleIdentifier": "com.company.messmate",
       "infoPlist": {
         "NSUserNotificationUsageDescription": "Remind you to mark your daily meals"
       }
     },
     "android": {
-      "package": "com.messmate.app",
+      "package": "com.company.messmate",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"

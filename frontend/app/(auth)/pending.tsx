@@ -29,9 +29,9 @@ export default function Pending() {
           <View style={styles.metaBox} testID="pending-meta">
             <Text style={styles.metaLabel}>Account</Text>
             <Text style={styles.metaValue}>{user.full_name}</Text>
-            <Text style={styles.metaValue}>{user.mobile_or_user_id}</Text>
+            <Text style={styles.metaValue}>{user.email || user.mobile_or_user_id}</Text>
             <Text style={styles.metaValue}>
-              {user.institution_or_hostel_name} · Room {user.room_number}
+              {user.institution_or_hostel_name}
             </Text>
           </View>
         ) : null}

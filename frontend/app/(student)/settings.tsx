@@ -9,7 +9,7 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { Button } from "@/src/components/Button";
 import { NotifBell } from "@/src/components/NotifBell";
 import { ThemeToggle } from "@/src/components/ThemeToggle";
-import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
+import { radius, shadow, spacing, typography, colors, useTheme, type ThemeColors } from "@/src/theme";
 
 type Row = {
   icon: keyof typeof Feather.glyphMap;
@@ -75,9 +75,9 @@ export default function StudentSettings() {
           <Text style={styles.profileSub} testID="student-profile-sub">
             {user?.institution_or_hostel_name || "—"}
           </Text>
-          {user?.room_number ? (
+          {user?.institution_or_hostel_name ? (
             <View style={styles.roomBadge}>
-              <Text style={styles.roomBadgeText}>Room · {user.room_number}</Text>
+              <Text style={styles.roomBadgeText}>{user.institution_or_hostel_name}</Text>
             </View>
           ) : null}
         </View>
@@ -93,10 +93,10 @@ export default function StudentSettings() {
           />
           <View style={styles.divider} />
           <SettingsRow
-            icon="phone"
-            label="Mobile / User ID"
-            value={user?.mobile_or_user_id || "—"}
-            testID="student-row-mobile"
+            icon="mail"
+            label="Email"
+            value={user?.email || user?.mobile_or_user_id || "—"}
+            testID="student-row-email"
           />
           <View style={styles.divider} />
           <SettingsRow
@@ -104,13 +104,6 @@ export default function StudentSettings() {
             label="Institution / Hostel"
             value={user?.institution_or_hostel_name || "—"}
             testID="student-row-hostel"
-          />
-          <View style={styles.divider} />
-          <SettingsRow
-            icon="hash"
-            label="Room number / ID"
-            value={user?.room_number || "—"}
-            testID="student-row-room"
           />
         </View>
 

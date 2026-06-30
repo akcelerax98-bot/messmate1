@@ -16,7 +16,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { api, type AppSettings, type Reaction } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { Button } from "@/src/components/Button";
+import { NotifBell } from "@/src/components/NotifBell";
 import { Segmented } from "@/src/components/Segmented";
+import { ThemeToggle } from "@/src/components/ThemeToggle";
 import { Toast } from "@/src/components/Toast";
 import { colors, radius, shadow, spacing, typography } from "@/src/theme";
 
@@ -78,9 +80,12 @@ export default function AdminSettings() {
         onHide={() => setToast(null)}
       />
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.eyebrow}>ADMIN</Text>
-          <Text style={styles.title}>Settings</Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.eyebrow}>ADMIN</Text>
+            <Text style={styles.title}>Settings</Text>
+          </View>
+          <NotifBell testID="admin-settings-bell" />
         </View>
 
         {/* Profile */}
@@ -149,6 +154,11 @@ export default function AdminSettings() {
           />
         </View>
 
+        <Text style={styles.sectionLabel}>Appearance</Text>
+        <View style={styles.card}>
+          <ThemeToggle />
+        </View>
+
         <Text style={styles.sectionLabel}>App</Text>
         <View style={styles.card}>
           <View style={styles.switchRow}>
@@ -198,6 +208,12 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 32 },
   header: { marginBottom: spacing.md },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: spacing.md,
+  },
   eyebrow: {
     ...typography.caption,
     color: colors.primary,

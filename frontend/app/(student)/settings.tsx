@@ -7,6 +7,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth/AuthContext";
 import { Button } from "@/src/components/Button";
+import { NotifBell } from "@/src/components/NotifBell";
+import { ThemeToggle } from "@/src/components/ThemeToggle";
 import { colors, radius, shadow, spacing, typography } from "@/src/theme";
 
 type Row = {
@@ -50,9 +52,12 @@ export default function StudentSettings() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.eyebrow}>STUDENT</Text>
-          <Text style={styles.title}>Settings</Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.eyebrow}>STUDENT</Text>
+            <Text style={styles.title}>Settings</Text>
+          </View>
+          <NotifBell testID="student-settings-bell" />
         </View>
 
         {/* Profile card */}
@@ -119,6 +124,11 @@ export default function StudentSettings() {
         </View>
 
         {/* App */}
+        <Text style={styles.sectionLabel}>Appearance</Text>
+        <View style={styles.card}>
+          <ThemeToggle />
+        </View>
+
         <Text style={styles.sectionLabel}>App</Text>
         <View style={styles.card}>
           <SettingsRow
@@ -155,6 +165,12 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 24 },
   header: { marginBottom: spacing.md },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: spacing.md,
+  },
   eyebrow: {
     ...typography.caption,
     color: colors.primary,

@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { api } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
@@ -36,16 +37,23 @@ export default function AdminLogin() {
     }
     setLoading(true);
     try {
-      const user = await login({
+      const res = await api.login({
         mobile_or_user_id: userId.trim(),
         password,
         institution_or_hostel_name: institution.trim(),
       });
-      if (user.role !== "admin") {
-        setError(
-          "This account is not an admin account. Please use Student/User login.",
-        );
+      if (res.user_preview.role !== "admin") {
+        setError("This account is not an admin account. Please use Student/User login.");
+        return;
       }
+      router.push({
+        pathname: "/(auth)/otp",
+        params: {
+          challenge: res.challenge,
+          mock_otp: res.mock_otp,
+          full_name: res.user_preview.full_name,
+        },
+      });
     } catch (e: any) {
       setError(e?.message || "Login failed");
     } finally {

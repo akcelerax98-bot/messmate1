@@ -22,6 +22,7 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { BarChart as _unused } from "@/src/components/BarChart"; // eslint-disable-line @typescript-eslint/no-unused-vars
 import { Button } from "@/src/components/Button";
 import { Chip } from "@/src/components/Chip";
+import { NotifBell } from "@/src/components/NotifBell";
 import { Toast } from "@/src/components/Toast";
 import { ToggleOnOff } from "@/src/components/ToggleOnOff";
 import { colors, radius, shadow, spacing, typography } from "@/src/theme";
@@ -336,13 +337,18 @@ export default function StudentHome() {
         >
           {/* Greeting */}
           <View style={styles.headerBlock}>
-            <Text style={styles.eyebrow}>TODAY'S PLAN</Text>
-            <Text style={styles.greeting} testID="home-greeting">
-              Hi, {user?.full_name || "there"}
-            </Text>
-            <Text style={styles.dateLine} testID="home-date">
-              {dateLabel}
-            </Text>
+            <View style={styles.headerRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.eyebrow}>TODAY'S PLAN</Text>
+                <Text style={styles.greeting} testID="home-greeting">
+                  Hi, {user?.full_name || "there"}
+                </Text>
+                <Text style={styles.dateLine} testID="home-date">
+                  {dateLabel}
+                </Text>
+              </View>
+              <NotifBell testID="home-bell" />
+            </View>
           </View>
 
           {/* Menu summary */}
@@ -456,6 +462,7 @@ const styles = StyleSheet.create({
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 24 },
 
   headerBlock: { marginBottom: spacing.lg },
+  headerRow: { flexDirection: "row", alignItems: "flex-start" },
   eyebrow: {
     ...typography.caption,
     color: colors.primary,

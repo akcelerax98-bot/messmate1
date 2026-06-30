@@ -147,7 +147,7 @@ export default function AdminWastageCalc() {
   const [trend, setTrend] = useState<AdminWastageTrend | null>(null);
   const [range, setRange] = useState<Range>("7");
   const [meal, setMeal] = useState<MealFilter>("all");
-  const [showSaved, setShowSaved] = useState<"wastage" | "saved">("wastage");
+  const [showSaved, setShowSaved] = useState<"wastage" | "saved" | "cost">("wastage");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -159,6 +159,7 @@ export default function AdminWastageCalc() {
   const [breakfast, setBreakfast] = useState<Draft[]>([]);
   const [lunch, setLunch] = useState<Draft[]>([]);
   const [dinner, setDinner] = useState<Draft[]>([]);
+  const [manualCost, setManualCost] = useState<string>("");
 
   const hydrateDrafts = (today: AdminWastageToday | null) => {
     const toDrafts = (items: any[] | undefined): Draft[] =>
@@ -170,6 +171,12 @@ export default function AdminWastageCalc() {
     setBreakfast(toDrafts(today?.today?.breakfast_items));
     setLunch(toDrafts(today?.today?.lunch_items));
     setDinner(toDrafts(today?.today?.dinner_items));
+    setManualCost(
+      today?.today?.manual_total_cost !== null &&
+        today?.today?.manual_total_cost !== undefined
+        ? String(today.today.manual_total_cost)
+        : "",
+    );
   };
 
   const load = useCallback(async () => {
@@ -210,6 +217,8 @@ export default function AdminWastageCalc() {
         breakfast_items: parse(breakfast),
         lunch_items: parse(lunch),
         dinner_items: parse(dinner),
+        manual_total_cost:
+          manualCost.trim() === "" ? undefined : parseFloat(manualCost) || 0,
       });
       setToast({ message: "Wastage saved", variant: "success" });
       await load();
@@ -362,6 +371,32 @@ export default function AdminWastageCalc() {
             <MealEntryEditor meal="breakfast" drafts={breakfast} setDrafts={setBreakfast} />
             <MealEntryEditor meal="lunch" drafts={lunch} setDrafts={setLunch} />
             <MealEntryEditor meal="dinner" drafts={dinner} setDrafts={setDinner} />
+
+            <View style={styles.editorBlock} testID="wastage-editor-manual-cost">
+              <View style={styles.editorHead}>
+                <View style={styles.editorIcon}>
+                  <Feather name="dollar-sign" size={16} color={colors.primary} />
+                </View>
+                <Text style={styles.editorTitle}>Today's wastage cost (₹)</Text>
+              </View>
+              <Text style={styles.editorMuted}>
+                Manually enter today's total wastage cost. Stored alongside item-based loss
+                and shown in the Cost trend graph.
+              </Text>
+              <TextInput
+                testID="wastage-manual-cost-input"
+                value={manualCost}
+                onChangeText={setManualCost}
+                placeholder="e.g., 1200"
+                keyboardType="decimal-pad"
+                placeholderTextColor={colors.textSecondary}
+                style={[
+                  styles.input,
+                  { marginTop: 8, paddingVertical: 12, fontSize: 16 },
+                ]}
+              />
+            </View>
+
             <Button
               testID="wcalc-save"
               label={saving ? "Saving..." : "Save wastage"}
@@ -370,7 +405,7 @@ export default function AdminWastageCalc() {
               style={{ marginTop: 10 }}
             />
             <Text style={styles.hint}>
-              Price comes from Necessary Info. Loss = Quantity × Price/unit.
+              Item loss uses prices from Necessary Info. Manual cost is added to total loss.
             </Text>
           </View>
 
@@ -379,12 +414,13 @@ export default function AdminWastageCalc() {
             <Text style={styles.cardTitle}>Trend</Text>
 
             <Text style={styles.filterLabel}>View</Text>
-            <Segmented<"wastage" | "saved">
+            <Segmented<"wastage" | "saved" | "cost">
               testID="wcalc-chart-mode"
               value={showSaved}
               onChange={setShowSaved}
               options={[
-                { value: "wastage", label: "Wastage (kg)", testID: "wcalc-chart-wastage" },
+                { value: "wastage", label: "Wastage", testID: "wcalc-chart-wastage" },
+                { value: "cost", label: "Cost (₹)", testID: "wcalc-chart-cost" },
                 { value: "saved", label: "Saved (₹)", testID: "wcalc-chart-saved" },
               ]}
               style={{ marginBottom: spacing.sm }}
@@ -423,7 +459,9 @@ export default function AdminWastageCalc() {
                 data={
                   showSaved === "wastage"
                     ? trend.wastage_series
-                    : trend.saved_series.map((p) => ({ ...p, value: Math.max(0, p.value) }))
+                    : showSaved === "cost"
+                      ? (trend as any).cost_series || []
+                      : trend.saved_series.map((p) => ({ ...p, value: Math.max(0, p.value) }))
                 }
                 height={180}
               />

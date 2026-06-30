@@ -24,11 +24,7 @@ type AuthState = {
 };
 
 type AuthContextValue = AuthState & {
-  login: (payload: {
-    mobile_or_user_id: string;
-    password: string;
-    institution_or_hostel_name?: string;
-  }) => Promise<User>;
+  login: (payload: { challenge: string; otp: string }) => Promise<User>;
   registerStudent: (payload: {
     full_name: string;
     mobile_or_user_id: string;
@@ -66,7 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login: AuthContextValue["login"] = useCallback(async (payload) => {
-    const res = await api.login(payload);
+    const res = await api.verifyLoginOtp(payload);
     await storage.secureSet(TOKEN_KEY, res.access_token);
     await storage.setItem(USER_KEY, JSON.stringify(res.user));
     setToken(res.access_token);

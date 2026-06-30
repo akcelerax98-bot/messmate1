@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 6 (multi-tenant + 2-step OTP login + manual wastage cost + notifications + theme toggle + floating glass tab bar) verified end-to-end. Backend: 23/23 pytest pass in /app/backend/tests/test_iteration6.py covering (a) 2-step login — step 1 returns {challenge, mock_otp, user_preview} with NO access_token; wrong creds → 401, wrong hostel → 401, missing hostel field → 422; step 2 verify-login-otp with 123456 returns access_token+user; wrong OTP → 400 'Invalid OTP'; bad challenge → 400; challenge token rejected at /auth/me → 401. (b) Multi-tenant hostel scoping — registered TEST_Hostel_xxxx student is INVISIBLE in Demo Hostel admin's /admin/students and the students set in admin list contains only Demo Hostel. (c) Wastage manual_total_cost — PUT /admin/wastage/<today> with manual_total_cost:1500 persists; response.wastage.manual_total_cost==1500 and total_loss==item_loss_total+1500; /admin/wastage/today.today.manual_total_cost==1500. (d) Trend now returns cost_series alongside wastage_series + saved_series. (e) Notifications — admin POST creates announcement (201); admin GET lists it; approved student GET sees it with read=false and unread_count>=1; POST /student/notifications/:id/read flips read=true and decrements unread_count; /admin/notifications/menu-reminder with seeded tomorrow menu creates a type=menu_reminder doc (201). (f) Push token — POST /auth/push-token (auth) returns {ok:true}; anon → 401. Frontend (mobile 390x844, Expo web): Welcome renders with role-student-card + role-admin-card; tap Student → login screen has student-hostel-input (pre-filled 'Demo Hostel') + student-mobile-input + student-password-input + student-login-submit → OTP screen with otp-input + otp-verify + visible 'Mock OTP (dev): 123456' hint → home tab loads with home-bell showing unread badge (3) and a floating glass 4-tab pill at the bottom. Admin path: role-admin-card → admin-institution-input (NOTE: testID is 'admin-institution-input' NOT 'admin-hostel-input' as listed in the spec) + admin-userid-input + admin-password-input + admin-login-submit → OTP → 5-tab admin home (Students Status default). Wastage tab: wastage-editor-manual-cost + wastage-manual-cost-input present; ₹1500 from manual_total_cost reflects in 'Today loss' card; wcalc-chart-mode segmented exposes 3 modes 'Wastage / Cost (₹) / Saved (₹)' (matches spec). Settings tab: profile (Demo Admin / Demo Hostel / Admin · admin), Appearance section with theme-toggle and theme-toggle-light/dark/system buttons; clicking Dark toggles theme (verified no crash, but body bg remains transparent rgba(0,0,0,0) — actual themed containers inside still re-color; visual verification needed by user). Admin notifications bell on settings has testID 'admin-settings-bell' (spec mentions 'notif-menu-reminder' / 'notif-toggle-composer' inside the modal — not opened in this run due to test session time). Hostel scoping enforced end-to-end. Deprecated style warnings ('shadow*' and 'props.pointerEvents') still emitted from RNW; cosmetic only.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin login", "issues": ["testID for the institution field is 'admin-institution-input' while the student login uses 'student-hostel-input' and the iteration 6 spec lists 'admin-hostel-input'. Either rename the admin testID to 'admin-hostel-input' for consistency or update the spec; both fields function correctly."]}
+    ],
+    "react_native_issues": [
+      {"component": "RNW shim", "issue": "Console warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Cosmetic; emitted from multiple screens that use shadow* on RN-Web. Reference: any StyleSheet.create({ shadowColor/shadowOffset/shadowRadius/shadowOpacity }) — e.g. components inside /app/frontend/app/(auth)/student-login.tsx & wastage-calc.tsx"},
+      {"component": "RNW shim", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents.' Cosmetic; likely from KeyboardAvoidingView / Pressable usages. No functional impact."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration6.py",
+    "/app/test_reports/pytest/iteration_6.xml"
+  ],
+  "action_items": [
+    "(Optional) Rename admin-login institution testID from 'admin-institution-input' to 'admin-hostel-input' for parity with 'student-hostel-input' AND the iteration 6 spec checklist.",
+    "(Optional) Silence RNW deprecation warnings: replace shadow* style props with boxShadow and migrate props.pointerEvents → style.pointerEvents (no behavior impact).",
+    "NOTE: /app/backend/tests/test_auth.py and test_student.py (the legacy 84-test suite) still use the OLD single-step login JSON shape (no institution_or_hostel_name, expects access_token from /auth/login). They were NOT re-run this iteration. They will fail until they switch to the 2-step flow. Main agent should either migrate them or mark them deprecated."
+  ],
+  "critical_code_review_comments": [
+    "server.py /auth/login → /auth/verify-login-otp correctly uses a typed JWT ({'type':'challenge'}) and rejects challenge tokens in get_current_user. Good defence in depth.",
+    "server.py _compute_wastage_doc correctly separates item_loss_total from total_loss; total_loss = item_loss_total + manual_total_cost. Spec-compliant.",
+    "server.py admin_menu_reminder requires a tomorrow menu and 400s otherwise. Behavior matches spec.",
+    "server.py hostel scoping uses institution_or_hostel_name on every query; users index is (mobile, institution) composite. Good multi-tenancy.",
+    "Frontend: admin-login testID 'admin-institution-input' is inconsistent with student-login 'student-hostel-input' and spec list. Minor naming inconsistency."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration6.py — NEW (23 tests, all passing)",
+    "/app/test_reports/iteration_6.json — NEW",
+    "/app/test_reports/pytest/iteration_6.xml — NEW (junit)"
+  ],
+  "success_rate": {
+    "backend": "100% (23/23 pytest)",
+    "frontend": "100% on core flows actually exercised (student & admin 2-step login, OTP, home bell, wastage manual cost + 3-mode chart, theme toggle present and tappable)"
+  },
+  "seed_data_creation": "None new. Backend startup seeds remain idempotent. The iteration6 test suite creates a one-off TEST_Hostel_xxxx student (TEST_ prefix) to verify cross-hostel isolation — left in DB; harmless and isolated.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All iteration 6 backend behavior is locked: 2-step login, hostel scoping, manual wastage cost, notifications, push token, cost_series. The legacy test_auth.py + test_student.py from iteration 5 will FAIL if re-run unchanged because /auth/login no longer returns access_token — they must be updated to the 2-step flow (see test_iteration6._two_step_login helper for the canonical pattern). Frontend testID quirks: admin login uses 'admin-institution-input' (not 'admin-hostel-input'); admin notifications bell is 'admin-settings-bell' on the Settings screen header; tabs do NOT expose data-testid='tab-*' so navigate via page.get_by_text('Wastage', exact=True).first.click(force=True) etc. Manual cost save button testID is 'wcalc-save' (single save button persists everything including manual_total_cost).",
+  "rca_of_issue": "N/A — no defects found in iteration 6 scope. The only observation is a testID naming inconsistency between admin-login (admin-institution-input) and student-login (student-hostel-input); functionality is unaffected."
+}

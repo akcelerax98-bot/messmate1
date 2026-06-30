@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AuthProvider, useAuthRouting } from "@/src/auth/AuthContext";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { ThemeProvider, useTheme } from "@/src/theme";
 
 LogBox.ignoreAllLogs(true);
 
@@ -17,12 +18,20 @@ SplashScreen.preventAutoHideAsync();
 
 function RoutingShell() {
   useAuthRouting();
+  const { c } = useTheme();
   return (
-    <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        animation: "fade",
+        contentStyle: { backgroundColor: c.bg },
+      }}
+    >
       <Stack.Screen name="index" />
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(student)" />
       <Stack.Screen name="(admin)" />
+      <Stack.Screen name="notifications" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
     </Stack>
   );
 }
@@ -40,10 +49,12 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" backgroundColor="#F9F9F9" />
-      <AuthProvider>
-        <RoutingShell />
-      </AuthProvider>
+      <StatusBar barStyle="dark-content" backgroundColor="#F7F8FA" />
+      <ThemeProvider>
+        <AuthProvider>
+          <RoutingShell />
+        </AuthProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }

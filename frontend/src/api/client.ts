@@ -183,6 +183,8 @@ export type WastageDocFull = {
   lunch_loss?: number;
   dinner_loss?: number;
   total_loss?: number;
+  manual_total_cost?: number | null;
+  item_loss_total?: number;
 };
 
 export type AdminWastageToday = {
@@ -248,8 +250,23 @@ export const api = {
   login: (payload: {
     mobile_or_user_id: string;
     password: string;
-    institution_or_hostel_name?: string;
-  }) => request<TokenResponse>("/auth/login", { method: "POST", body: payload }),
+    institution_or_hostel_name: string;
+  }) =>
+    request<{
+      challenge: string;
+      mock_otp: string;
+      user_preview: {
+        full_name: string;
+        role: Role;
+        mobile_or_user_id: string;
+        institution_or_hostel_name: string;
+      };
+    }>("/auth/login", { method: "POST", body: payload }),
+  verifyLoginOtp: (payload: { challenge: string; otp: string }) =>
+    request<TokenResponse>("/auth/verify-login-otp", {
+      method: "POST",
+      body: payload,
+    }),
   me: (token: string) => request<User>("/auth/me", { token }),
 
   // Student
@@ -383,6 +400,7 @@ export const api = {
       breakfast_items: { item_name: string; quantity: number; unit: Unit }[];
       lunch_items: { item_name: string; quantity: number; unit: Unit }[];
       dinner_items: { item_name: string; quantity: number; unit: Unit }[];
+      manual_total_cost?: number;
     },
   ) =>
     request<{ ok: boolean; wastage: WastageDocFull }>(
@@ -394,4 +412,57 @@ export const api = {
     request<AppSettings>("/admin/settings", { token }),
   adminSettingsUpdate: (token: string, body: Partial<AppSettings>) =>
     request<AppSettings>("/admin/settings", { method: "PUT", body, token }),
+
+  // Notifications
+  studentNotifications: (token: string) =>
+    request<{
+      items: {
+        id: string;
+        title: string;
+        body: string;
+        type: string;
+        scheduled_for: string;
+        created_at: string;
+        read: boolean;
+      }[];
+      unread_count: number;
+    }>("/student/notifications", { token }),
+  markNotifRead: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/student/notifications/${id}/read`, {
+      method: "POST",
+      token,
+    }),
+  adminNotifications: (token: string) =>
+    request<{
+      items: {
+        id: string;
+        title: string;
+        body: string;
+        type: string;
+        scheduled_for: string;
+        created_at: string;
+      }[];
+    }>("/admin/notifications", { token }),
+  adminCreateNotification: (
+    token: string,
+    body: {
+      title: string;
+      body: string;
+      audience?: "all" | "student";
+      recipient_id?: string;
+      type?: "announcement" | "menu_reminder" | "system";
+      scheduled_for?: string;
+    },
+  ) =>
+    request<any>("/admin/notifications", {
+      method: "POST",
+      body,
+      token,
+    }),
+  adminMenuReminder: (token: string, custom_body?: string) =>
+    request<any>("/admin/notifications/menu-reminder", {
+      method: "POST",
+      body: { custom_body },
+      token,
+    }),
 };

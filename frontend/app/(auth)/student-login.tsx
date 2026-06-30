@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { api } from "@/src/api/client";
 import { useAuth } from "@/src/auth/AuthContext";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
@@ -22,6 +23,7 @@ import { colors, spacing, typography } from "@/src/theme";
 export default function StudentLogin() {
   const router = useRouter();
   const { login } = useAuth();
+  const [hostel, setHostel] = useState("Demo Hostel");
   const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -29,20 +31,29 @@ export default function StudentLogin() {
 
   const onSubmit = async () => {
     setError(null);
-    if (!mobile.trim() || !password.trim()) {
-      setError("Please enter mobile number / user ID and password.");
+    if (!hostel.trim() || !mobile.trim() || !password.trim()) {
+      setError("Please fill in all fields.");
       return;
     }
     setLoading(true);
     try {
-      const user = await login({
+      const res = await api.login({
         mobile_or_user_id: mobile.trim(),
         password,
+        institution_or_hostel_name: hostel.trim(),
       });
-      if (user.role === "admin") {
+      if (res.user_preview.role === "admin") {
         setError("This account is an admin account. Use Admin login.");
+        return;
       }
-      // routing is handled by useAuthRouting
+      router.push({
+        pathname: "/(auth)/otp",
+        params: {
+          challenge: res.challenge,
+          mock_otp: res.mock_otp,
+          full_name: res.user_preview.full_name,
+        },
+      });
     } catch (e: any) {
       setError(e?.message || "Login failed");
     } finally {
@@ -77,6 +88,14 @@ export default function StudentLogin() {
           </Text>
 
           <View style={{ marginTop: spacing.xl }}>
+            <Input
+              testID="student-hostel-input"
+              label="Institution / Hostel name"
+              placeholder="e.g., Demo Hostel"
+              autoCapitalize="words"
+              value={hostel}
+              onChangeText={setHostel}
+            />
             <Input
               testID="student-mobile-input"
               label="Mobile number or User ID"

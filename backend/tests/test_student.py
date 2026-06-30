@@ -202,9 +202,16 @@ class TestWastage:
         assert len(j["series"]) == 7
         # summary keys
         assert "today" in j["summary"]
+        # BUG FIX: today breakdown still populated
         assert j["summary"]["today"]["total"] is not None
+        assert j["summary"]["today"]["breakfast"] is not None
+        assert j["summary"]["today"]["lunch"] is not None
+        assert j["summary"]["today"]["dinner"] is not None
+        # BUG FIX: yesterday & last-week must be numeric, NOT null
         assert j["summary"]["yesterday_total"] is not None
+        assert isinstance(j["summary"]["yesterday_total"], (int, float))
         assert j["summary"]["last_week_same_day_total"] is not None
+        assert isinstance(j["summary"]["last_week_same_day_total"], (int, float))
         for s in j["series"]:
             assert "date" in s and "value" in s
 
@@ -212,13 +219,36 @@ class TestWastage:
         r = session.get(f"{API}/student/wastage?range=30&meal=all",
                         headers=H(student_token))
         assert r.status_code == 200
-        assert len(r.json()["series"]) == 30
+        j = r.json()
+        assert len(j["series"]) == 30
+        assert j["summary"]["yesterday_total"] is not None
+        assert j["summary"]["last_week_same_day_total"] is not None
 
     def test_wastage_90(self, session, student_token):
         r = session.get(f"{API}/student/wastage?range=90&meal=all",
                         headers=H(student_token))
         assert r.status_code == 200
-        assert len(r.json()["series"]) == 90
+        j = r.json()
+        assert len(j["series"]) == 90
+        assert j["summary"]["yesterday_total"] is not None
+        assert j["summary"]["last_week_same_day_total"] is not None
+
+    def test_wastage_summary_consistent_across_ranges(self, session, student_token):
+        """REGRESSION: yesterday & last-week values must be identical for 7/30/90."""
+        results = {}
+        for rng in [7, 30, 90]:
+            r = session.get(f"{API}/student/wastage?range={rng}&meal=all",
+                            headers=H(student_token))
+            assert r.status_code == 200
+            j = r.json()
+            results[rng] = (
+                j["summary"]["yesterday_total"],
+                j["summary"]["last_week_same_day_total"],
+                j["summary"]["today"]["total"],
+            )
+        assert results[7] == results[30] == results[90], (
+            f"Summary cards drift across ranges: {results}"
+        )
 
     def test_wastage_per_meal(self, session, student_token):
         for meal in ["breakfast", "lunch", "dinner"]:

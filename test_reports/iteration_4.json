@@ -1,0 +1,36 @@
+{
+  "summary": "Backend-only retest of Part 2 wastage bug fix. Bug fix VERIFIED: GET /api/student/wastage?range=7&meal=all now returns numeric summary.yesterday_total=10.81 and summary.last_week_same_day_total=10.8 (previously null). Regression verified across range=30 and range=90 — yesterday/last-week/today values are byte-identical (10.81 / 10.8 / 9.74) confirming the cards are now sourced from independent find_one queries instead of the truncated window cursor. Today breakdown (breakfast/lunch/dinner) still populated. Per-meal series for breakfast/lunch/dinner stays at length=range. All auth guards still 401 (no token / bad token) and 403 (admin / pending / blocked) across 5 GET endpoints + 3 mutating endpoints. Final score: 36/36 pytest pass (15 auth + 21 prior student + 1 NEW regression test test_wastage_summary_consistent_across_ranges). No new issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_student.py",
+    "/app/backend/tests/test_auth.py",
+    "/app/test_reports/pytest/iteration_4_full.xml",
+    "/app/test_reports/pytest/iteration_4.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py L488-502: Fix is clean — today_row/yesterday_row/last_week_row first try the cached `by_date` dict (populated by the windowed cursor) and fall back to an explicit find_one when missing. Three extra round-trips at worst (one each), avoidable only via $or in the main query — acceptable trade-off for correctness clarity.",
+    "server.py L466-467: `start = today - timedelta(days=range-1)` is still range-bound for the chart series (correct — the chart only shows the requested window). Summary cards now correctly decoupled from this window."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_student.py — added test_wastage_summary_consistent_across_ranges (regression guard) and hardened test_wastage_default_7/30/90 to assert numeric (not just non-null) summary values + today breakfast/lunch/dinner breakdown."
+  ],
+  "success_rate": {
+    "backend": "100% (36/36 pytest)",
+    "frontend": "N/A — backend-only retest"
+  },
+  "seed_data_creation": "None — backend startup seeds 4 users, 7 menus, 95 days of synthetic wastage idempotently.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Wastage bug is fully closed. Live values: today=9.74kg, yesterday=10.81kg, last-week=10.8kg — these are stable across range=7/30/90 and any drift in future iterations indicates a regression. The new test test_wastage_summary_consistent_across_ranges is the canary for that. Frontend testIDs documented in iteration_3 still apply.",
+  "rca_of_issue": "ROOT CAUSE (now fixed): The original student_wastage() built `by_date` from a single Mongo cursor scoped to date BETWEEN (today-(range-1)) AND today. For range=7 the lower bound was today-6, so the day-7 document was never fetched and by_date.get(today-7) returned None → summary.last_week_same_day_total = null. FIX (server.py L488-502): today_row / yesterday_row / last_week_row are now resolved via `by_date.get(...) or await wastage_col.find_one(...)`, guaranteeing the three summary cards always reflect actual DB values regardless of the requested range. VERIFICATION: curl/range=7 returns 10.8 (not null); 22 student tests pass including new regression test."
+}

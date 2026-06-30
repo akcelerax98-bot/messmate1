@@ -485,11 +485,21 @@ async def student_wastage(
             value = r.get(f"{meal}_wastage_kg", 0)
         series.append({"date": r["date"], "value": value})
 
-    # Summary cards
+    # Summary cards — fetch yesterday & last-week-same-day independently so they
+    # are populated even when the requested range window doesn't include them.
+    today_iso_str = today.isoformat()
+    yesterday_iso_str = (today - timedelta(days=1)).isoformat()
+    last_week_iso_str = (today - timedelta(days=7)).isoformat()
     by_date = {r["date"]: r for r in rows}
-    today_row = by_date.get(today.isoformat())
-    yesterday_row = by_date.get((today - timedelta(days=1)).isoformat())
-    last_week_row = by_date.get((today - timedelta(days=7)).isoformat())
+    today_row = by_date.get(today_iso_str) or await wastage_col.find_one(
+        {"date": today_iso_str}, {"_id": 0}
+    )
+    yesterday_row = by_date.get(yesterday_iso_str) or await wastage_col.find_one(
+        {"date": yesterday_iso_str}, {"_id": 0}
+    )
+    last_week_row = by_date.get(last_week_iso_str) or await wastage_col.find_one(
+        {"date": last_week_iso_str}, {"_id": 0}
+    )
 
     def total(row: Optional[dict]) -> Optional[float]:
         if not row:

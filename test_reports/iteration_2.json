@@ -1,0 +1,39 @@
+{
+  "summary": "Frontend-only retest of the useAuthRouting fix in /app/frontend/src/auth/AuthContext.tsx. All 5 targeted flows PASS on mobile viewport 390x844 against preview URL. (T1) Pending student 'pending/pending123' lands on pending-title; tapping pending-logout signs out and returns to Welcome (role cards visible, pending-title gone). (T2) Blocked student 'blocked/blocked123' lands on blocked-title; tapping blocked-logout returns to Welcome. (T3) Approved student 'student/student123' Settings -> student-settings-logout returns to Welcome. (T4) Admin 'admin/admin123' (Demo Hostel) Settings -> admin-settings-logout returns to Welcome. (T5) Regression: after logging out from pending screen, logging back in as approved student cleanly routes into (student) tabs (Today's Plan visible, bottom tabs Today/Menu/Wastage/Settings visible, no stuck nav). Code review of the fix: useAuthRouting correctly handles `path === '(auth)/pending' || path === '(auth)/blocked'` along with existing (student)/(admin) gating, and lastTarget ref guard prevents redirect loops. Only pre-existing cosmetic console warnings observed: 'shadow*' deprecated (theme.ts) and 'props.pointerEvents' deprecated — both noted in iteration_1 and non-blocking. Bug fix is verified.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "global (web)",
+        "issues": [
+          "Pre-existing cosmetic console warnings carried over from iteration_1: '\"shadow*\" style props are deprecated. Use \"boxShadow\"' (theme.ts shadow.card) and 'props.pointerEvents is deprecated' (RN web / safe-area-context). Non-blocking."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auth.py (from iteration_1, not re-executed — backend unchanged)",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "No fixes required. Bug 'sign out on pending/blocked screens does nothing' is RESOLVED.",
+    "(Optional polish, carried over) Replace shadow.* with boxShadow in theme.ts for web parity.",
+    "(Optional polish, carried over) Audit pointerEvents prop usage."
+  ],
+  "critical_code_review_comments": [
+    "useAuthRouting now checks `segments.join('/')` against '(auth)/pending' and '(auth)/blocked' when user is null, in addition to the existing (student)/(admin) top-segment check. Correct and minimal fix.",
+    "lastTarget ref still prevents redirect loops; no regression observed across rapid logout->login cycles (T5).",
+    "Pending and Blocked screens both call useAuth().logout which clears token, user, and storage atomically. Routing then triggers replace('/').",
+    "All sign-out controls retain stable testIDs: pending-logout, blocked-logout, student-settings-logout, admin-settings-logout."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "skipped (per request — no backend changes)", "frontend": "100% (5/5 targeted flows)" },
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Web preview renders each testID twice due to Expo Router SSR + CSR. `.first` may resolve to the hidden SSR copy and report not-visible even though the CSR copy IS visible. Reliable pattern: query all matches via page.evaluate and filter by getBoundingClientRect()+computed style, or use `.last` for clicks. Used in iteration_2 helper visible_count().",
+  "rca_of_issue": "Original bug: Sign-out buttons on /(auth)/pending and /(auth)/blocked invoked logout() (clearing token/user) but useAuthRouting only redirected away when top segment was '(student)' or '(admin)'. Since pending/blocked sit under (auth), null-user state did not trigger any router.replace, leaving the user stranded on the pending/blocked screen with no auth. Fix: extend the null-user branch to also redirect when full path is '(auth)/pending' or '(auth)/blocked'. Verified end-to-end via Playwright on the live preview URL."
+}

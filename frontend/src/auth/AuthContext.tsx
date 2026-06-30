@@ -122,8 +122,17 @@ export function useAuthRouting() {
 
     let target: string | null = null;
     if (!user) {
-      // Allow staying on public pages (welcome + auth screens).
-      if (top === "(student)" || top === "(admin)") target = "/";
+      // After logout we must leave any role-gated or status screen (pending /
+      // blocked are status screens that only make sense while logged in).
+      const path = segments.join("/");
+      if (
+        top === "(student)" ||
+        top === "(admin)" ||
+        path === "(auth)/pending" ||
+        path === "(auth)/blocked"
+      ) {
+        target = "/";
+      }
     } else if (user.role === "admin") {
       if (top !== "(admin)") target = "/(admin)/students-status";
     } else {

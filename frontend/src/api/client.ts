@@ -59,6 +59,7 @@ export type WeeklyDay = DailyMenu & {
 export type TodayResponse = {
   date: string;
   day: string;
+  for?: "today" | "tomorrow";
   menu: DailyMenu | null;
   plan: {
     date: string;
@@ -150,6 +151,7 @@ export type DashboardMeal = {
 export type DashboardResponse = {
   date: string;
   day: string;
+  for?: "today" | "tomorrow";
   meals: { breakfast: DashboardMeal; lunch: DashboardMeal; dinner: DashboardMeal };
   summary: {
     breakfast_eating: number;
@@ -320,10 +322,12 @@ export const api = {
   // Student
   studentMeta: (token: string) =>
     request<{ reasons: string[]; days: string[] }>("/student/meta", { token }),
-  studentToday: (token: string) => request<TodayResponse>("/student/today", { token }),
+  studentToday: (token: string, forDay: "today" | "tomorrow" = "today") =>
+    request<TodayResponse>(`/student/today?for=${forDay}`, { token }),
   upsertToday: (
     token: string,
     body: {
+      date?: string | null;
       breakfast: Partial<MealPlan>;
       lunch: Partial<MealPlan>;
       dinner: Partial<MealPlan>;
@@ -386,8 +390,8 @@ export const api = {
       items: { id: string; date: string; feedback_text: string; created_at: string }[];
       count: number;
     }>(`/admin/feedback?days=${days}`, { token }),
-  adminDashboard: (token: string) =>
-    request<DashboardResponse>("/admin/dashboard", { token }),
+  adminDashboard: (token: string, forDay: "today" | "tomorrow" = "today") =>
+    request<DashboardResponse>(`/admin/dashboard?for=${forDay}`, { token }),
 
   adminNecessaryInfo: (token: string) =>
     request<{ items: NecessaryItem[]; count: number }>("/admin/necessary-info", {

@@ -50,6 +50,8 @@ function cap(s: string) {
 
 // --- Menu editor ---------------------------------------------------------
 function MenuEditor({ data, onSave }: { data: DailyMenu; onSave: (d: DailyMenu) => Promise<void> }) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [b, setB] = useState(data.breakfast_items.join(", "));
   const [l, setL] = useState(data.lunch_items.join(", "));
   const [d, setD] = useState(data.dinner_items.join(", "));
@@ -87,7 +89,7 @@ function MenuEditor({ data, onSave }: { data: DailyMenu; onSave: (d: DailyMenu) 
         value={b}
         onChangeText={setB}
         placeholder="Idly, Dosa, Sambar"
-        placeholderTextColor={colors.textSecondary}
+        placeholderTextColor={c.textSecondary}
       />
       <Text style={styles.subLabel}>Lunch items</Text>
       <TextInput
@@ -96,7 +98,7 @@ function MenuEditor({ data, onSave }: { data: DailyMenu; onSave: (d: DailyMenu) 
         value={l}
         onChangeText={setL}
         placeholder="Rice, Sambar, Rasam"
-        placeholderTextColor={colors.textSecondary}
+        placeholderTextColor={c.textSecondary}
       />
       <Text style={styles.subLabel}>Dinner items</Text>
       <TextInput
@@ -105,7 +107,7 @@ function MenuEditor({ data, onSave }: { data: DailyMenu; onSave: (d: DailyMenu) 
         value={d}
         onChangeText={setD}
         placeholder="Chapati, Kurma"
-        placeholderTextColor={colors.textSecondary}
+        placeholderTextColor={c.textSecondary}
       />
       <Button
         testID={`menu-save-${data.day}`}
@@ -142,6 +144,8 @@ function ItemEditor({
   onCancel?: () => void;
   isNew?: boolean;
 }) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [d, setD] = useState<DraftItem>(draft);
   const [saving, setSaving] = useState(false);
   return (
@@ -153,7 +157,7 @@ function ItemEditor({
         value={d.item_name}
         onChangeText={(t) => setD({ ...d, item_name: t })}
         placeholder="e.g., Idly"
-        placeholderTextColor={colors.textSecondary}
+        placeholderTextColor={c.textSecondary}
       />
 
       <Text style={styles.subLabel}>Meal</Text>
@@ -177,7 +181,7 @@ function ItemEditor({
           onChangeText={(t) => setD({ ...d, quantity_per_person: t })}
           keyboardType="decimal-pad"
           placeholder="e.g., 4"
-          placeholderTextColor={colors.textSecondary}
+          placeholderTextColor={c.textSecondary}
         />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1.5 }}>
           {UNITS.map((u) => (
@@ -185,7 +189,7 @@ function ItemEditor({
               key={u}
               testID={`ni-unit-${u}`}
               onPress={() => setD({ ...d, unit: u })}
-              style={[styles.unitChip, d.unit === u && { backgroundColor: colors.primary }]}
+              style={[styles.unitChip, d.unit === u && { backgroundColor: c.primary }]}
             >
               <Text style={[styles.unitChipText, d.unit === u && { color: "#fff" }]}>{u}</Text>
             </TouchableOpacity>
@@ -202,7 +206,7 @@ function ItemEditor({
           onChangeText={(t) => setD({ ...d, price_per_unit: t })}
           keyboardType="decimal-pad"
           placeholder="e.g., 50"
-          placeholderTextColor={colors.textSecondary}
+          placeholderTextColor={c.textSecondary}
         />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1.5 }}>
           {UNITS.map((u) => (
@@ -212,7 +216,7 @@ function ItemEditor({
               onPress={() => setD({ ...d, price_unit: u })}
               style={[
                 styles.unitChip,
-                d.price_unit === u && { backgroundColor: colors.primary },
+                d.price_unit === u && { backgroundColor: c.primary },
               ]}
             >
               <Text
@@ -252,7 +256,7 @@ function ItemEditor({
       </View>
       {onDelete ? (
         <TouchableOpacity testID="ni-delete" onPress={onDelete} style={styles.deleteRow}>
-          <Feather name="trash-2" size={14} color={colors.danger} />
+          <Feather name="trash-2" size={14} color={c.danger} />
           <Text style={styles.deleteText}>Delete item</Text>
         </TouchableOpacity>
       ) : null}
@@ -262,6 +266,8 @@ function ItemEditor({
 
 // --- Custom Questions editor ---------------------------------------------
 function CustomQEditor({ menu, onSave }: { menu: DailyMenu; onSave: (d: DailyMenu) => Promise<void> }) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   type Slot = "breakfast_custom_question" | "lunch_custom_question" | "dinner_custom_question";
 
   const initial = (slot: Slot) => {
@@ -319,7 +325,7 @@ function CustomQEditor({ menu, onSave }: { menu: DailyMenu; onSave: (d: DailyMen
         value={state.text}
         onChangeText={(t) => setState({ ...state, text: t })}
         placeholder="Question text (leave blank to remove)"
-        placeholderTextColor={colors.textSecondary}
+        placeholderTextColor={c.textSecondary}
       />
       <TextInput
         testID={`${prefix}-options`}
@@ -327,7 +333,7 @@ function CustomQEditor({ menu, onSave }: { menu: DailyMenu; onSave: (d: DailyMen
         value={state.options}
         onChangeText={(t) => setState({ ...state, options: t })}
         placeholder="Options (comma separated, e.g., Yes, No)"
-        placeholderTextColor={colors.textSecondary}
+        placeholderTextColor={c.textSecondary}
       />
     </View>
   );
@@ -456,7 +462,7 @@ export default function AdminNecessaryInfo() {
     return (
       <SafeAreaView style={styles.safe} edges={["top"]}>
         <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
+          <ActivityIndicator color={c.primary} />
         </View>
       </SafeAreaView>
     );
@@ -484,7 +490,7 @@ export default function AdminNecessaryInfo() {
                 setRefreshing(true);
                 load();
               }}
-              tintColor={colors.primary}
+              tintColor={c.primary}
             />
           }
         >
@@ -519,7 +525,7 @@ export default function AdminNecessaryInfo() {
                     onPress={() => setDay(dKey)}
                     style={[
                       styles.dayChip,
-                      day === dKey && { backgroundColor: colors.primary },
+                      day === dKey && { backgroundColor: c.primary },
                     ]}
                   >
                     <Text
@@ -561,7 +567,7 @@ export default function AdminNecessaryInfo() {
                   }}
                   style={styles.addNiBtn}
                 >
-                  <Feather name="plus" size={16} color={colors.primary} />
+                  <Feather name="plus" size={16} color={c.primary} />
                   <Text style={styles.addNiText}>Add item</Text>
                 </TouchableOpacity>
               ) : null}
@@ -614,7 +620,7 @@ export default function AdminNecessaryInfo() {
                           {it.price_per_unit}/{it.price_unit}
                         </Text>
                       </View>
-                      <Feather name="chevron-right" size={18} color={colors.textSecondary} />
+                      <Feather name="chevron-right" size={18} color={c.textSecondary} />
                     </TouchableOpacity>
                   ))
                 )

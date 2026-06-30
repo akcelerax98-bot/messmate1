@@ -980,16 +980,22 @@ async def student_meta(_: dict = Depends(require_approved_student)):
 
 
 @api.get("/student/today")
-async def student_today(u: dict = Depends(require_approved_student)):
-    today = today_iso()
-    day = day_of_week(date.fromisoformat(today))
+async def student_today(
+    u: dict = Depends(require_approved_student),
+    for_: Literal["today", "tomorrow"] = Query("today", alias="for"),
+):
+    base = date.fromisoformat(today_iso())
+    target_date = (base + timedelta(days=1)).isoformat() if for_ == "tomorrow" else base.isoformat()
+    day = day_of_week(date.fromisoformat(target_date))
     h = hostel_of(u)
     menu_doc = await menus_col.find_one({"hostel": h, "day": day}, {"_id": 0})
     plan_doc = await daily_plans_col.find_one(
-        {"student_id": u["id"], "date": today}, {"_id": 0}
+        {"student_id": u["id"], "date": target_date}, {"_id": 0}
     )
     return {
-        "date": today, "day": day,
+        "date": target_date,
+        "day": day,
+        "for": for_,
         "menu": project_menu(menu_doc) if menu_doc else None,
         "plan": project_plan(plan_doc),
     }
@@ -1586,22 +1592,26 @@ async def admin_menu_upsert(day: str, payload: MenuUpsert, u: dict = Depends(req
 # ADMIN: Dashboard
 # ---------------------------------------------------------------------------
 @api.get("/admin/dashboard")
-async def admin_dashboard(u: dict = Depends(require_admin)):
+async def admin_dashboard(
+    u: dict = Depends(require_admin),
+    for_: Literal["today", "tomorrow"] = Query("today", alias="for"),
+):
     h = hostel_of(u)
-    today = today_iso()
-    day = day_of_week(date.fromisoformat(today))
+    base = date.fromisoformat(today_iso())
+    target_date = (base + timedelta(days=1)).isoformat() if for_ == "tomorrow" else base.isoformat()
+    day = day_of_week(date.fromisoformat(target_date))
     menu = await menus_col.find_one({"hostel": h, "day": day}, {"_id": 0}) or {}
 
     ni_lookup: Dict[str, dict] = {}
     async for r in necessary_info_col.find({"hostel": h}, {"_id": 0}):
         ni_lookup[f"{r['meal_type']}:{r['item_name'].lower()}"] = r
 
-    out: Dict[str, Any] = {"date": today, "day": day, "meals": {}}
+    out: Dict[str, Any] = {"date": target_date, "day": day, "for": for_, "meals": {}}
     most = {"item": None, "count": -1}
     least = {"item": None, "count": 10**9}
 
     for meal in ("breakfast", "lunch", "dinner"):
-        agg = await _aggregate_meal(h, meal, today, menu)  # type: ignore[arg-type]
+        agg = await _aggregate_meal(h, meal, target_date, menu)  # type: ignore[arg-type]
         items_out, warnings = [], []
         menu_items = menu.get(f"{meal}_items", []) if menu else []
         if not menu_items:
@@ -1630,7 +1640,10 @@ async def admin_dashboard(u: dict = Depends(require_admin)):
                 least = {"item": row["item_name"], "count": row["count"]}
 
         if not agg["item_counts"] and not warnings:
-            warnings.append("No student responses yet.")
+            warnings.append(
+                "No student responses yet." if for_ == "today"
+                else "No preferences submitted for tomorrow yet."
+            )
 
         out["meals"][meal] = {
             "menu_items": menu_items, "eating_count": agg["eating_count"],
@@ -1646,7 +1659,7 @@ async def admin_dashboard(u: dict = Depends(require_admin)):
         "lunch_eating": out["meals"]["lunch"]["eating_count"],
         "dinner_eating": out["meals"]["dinner"]["eating_count"],
         "total_responses": await daily_plans_col.count_documents(
-            {"hostel": h, "date": today}
+            {"hostel": h, "date": target_date}
         ),
         "most_demanded": most if most["item"] else None,
         "least_demanded": least if least["item"] else None,

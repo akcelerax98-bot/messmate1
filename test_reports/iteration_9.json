@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 9 backend testing complete — 18/18 pytest passing in /app/backend/tests/test_iteration9_today_tomorrow.py. Verified the new ?for=today|tomorrow query parameter on both /api/student/today and /api/admin/dashboard end-to-end. (1) GET /api/student/today (no query) is regression-free: returns date=today_iso, day=<lowercase weekday>, for='today', menu (or null), plan (or null). (2) GET /api/student/today?for=tomorrow returns date=today+1, day=<correct weekday for tomorrow>, for='tomorrow', and plan=null when no submission exists. (3) PUT /api/student/today with body {date:<tomorrow ISO>, breakfast/lunch/dinner:...} upserts a daily_plans doc for that exact date — subsequent GET ?for=tomorrow returns the saved plan with all fields intact (selected_items, reason_if_off), and GET ?for=today returns null/different-date plan (correctly isolated by date). (4) PUT default date (no `date` field) writes to today_iso. PUT with date='not-a-date' → 400 'Invalid date'. (5) GET /api/admin/dashboard (no query) regression-free: returns today's date, day, for='today', meals.{breakfast,lunch,dinner}, summary.{total_responses, breakfast_eating, lunch_eating, dinner_eating, most_demanded, least_demanded}. (6) GET /api/admin/dashboard?for=tomorrow returns date=today+1, day=tomorrow's weekday, for='tomorrow'. (7) **Critical isolation test**: created a student that submitted ALL-ON plan ONLY for tomorrow; verified /admin/dashboard summary.total_responses=0 with all *_eating=0 for today, AND total_responses=1 with breakfast_eating=lunch_eating=dinner_eating=1 for tomorrow. Confirms _aggregate_meal correctly filters daily_plans by target_date. (8) ?for=invalid (e.g. 'yesterday', 'next-week') correctly returns 422 via FastAPI Literal validation on both endpoints. (9) Regression on related endpoints all 2xx: /auth/login, /auth/register, /admin/students, /admin/notifications, /admin/notifications/dispatch-reminder (201), /admin/wastage/today, /admin/necessary-info. (10) The iteration 8 suite (test_iteration8_email_otp.py — 33 tests) was re-run in parallel and still 100% passes, so the new query param did not regress auth. All test data is TEST_-prefixed and cleaned up by session fixture (users, email_otps, daily_plans, menus, necessary_info per TEST_It9_Hostel). SMTP is configured (live) and the test run sent ~30 real emails to elsewe.tech@gmail.com — recommend an OTP_DEV_MODE bypass before CI. Note: the API returns lowercase day names (per DAYS constant 'monday'..'sunday'); the spec phrasing 'correct weekday for tomorrow' was case-agnostic — verified that day matches the lowercase weekday for the target date.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/student/today, GET /api/admin/dashboard", "issue": "The `day` field is returned in LOWERCASE (e.g. 'tuesday') because the DAYS constant in server.py:287 is lowercase. This is internally consistent (used for menu lookup) but the frontend toggle UI may want title-cased labels — verify the frontend doesn't compare against title-case strings."},
+      {"endpoint": "PUT /api/student/today", "issue": "When `payload.date` is None and target falls back to today_iso() (server.py:1008), there is no validation that the supplied date isn't far in the past or far in the future. A malicious student could PUT a plan for date='2030-01-01'. Acceptable for now but worth a future bounds check (only allow today/tomorrow)."},
+      {"endpoint": "GET /api/admin/dashboard?for=tomorrow", "issue": "When there are no submissions for tomorrow yet, each meal's `warnings` array correctly contains 'No preferences submitted for tomorrow yet.' (server.py:1645). Verified copy is shown."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9_today_tomorrow.py",
+    "/app/test_reports/pytest/iteration_9.xml"
+  ],
+  "action_items": [
+    "All 18 specified backend items in the review request pass — no code changes required for iteration 9 scope.",
+    "(Carried over from iteration 8) Update /app/memory/test_credentials.md — it documents the email-OTP flow correctly now but the file does not yet mention the new ?for=today|tomorrow query convention; consider adding one line about it for the next testing agent.",
+    "(Optional, future) Add server-side bounds on PUT /student/today.date — restrict to today or today+1 only, to match the new toggle UX.",
+    "(Optional, future) Consider returning `day` in title case OR documenting that frontend must compare lower-case; existing iteration 8 tests didn't assert on `day` case so this only surfaces now."
+  ],
+  "critical_code_review_comments": [
+    "server.py:982-1001 — student_today endpoint cleanly computes target_date from `for_` and re-uses day_of_week + menus_col.find_one. Backward-compatible (default 'today') and the response now includes `for` field so the client can confirm what it asked for. Good.",
+    "server.py:1004-1031 — upsert_today_plan: target = payload.date or today_iso(); validates ISO. The same handler is used for today AND tomorrow writes — clean. The upsert key is {student_id, date}, so writing tomorrow's plan does NOT overwrite today's, and vice versa. Verified by the test_summary_counts_only_target_day case.",
+    "server.py:1594-1667 — admin_dashboard threads target_date through _aggregate_meal and daily_plans_col.count_documents — both filter by date, so the cross-day isolation property holds. The 'No preferences submitted for tomorrow yet.' copy correctly branches on for_=='tomorrow'.",
+    "server.py:985, 1597 — Both endpoints use `Literal['today','tomorrow']` Query alias='for'. FastAPI emits 422 on invalid values (verified). Good.",
+    "server.py is now 1968 lines — still well over the 700-line guideline. The iteration 8 review already flagged this. Strongly recommend splitting student/admin/auth routers in a follow-up before adding more features."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration9_today_tomorrow.py — NEW (18 tests, 100% pass)",
+    "/app/test_reports/pytest/iteration_9.xml — NEW (junit xml)",
+    "/app/test_reports/iteration_9.json — NEW"
+  ],
+  "success_rate": {
+    "backend": "100% (18/18 new + 33/33 regression on iteration 8 suite = 51/51 total)",
+    "frontend": "not tested (review_request explicitly marked backend-only)"
+  },
+  "seed_data_creation": "None persisted. Each test creates TEST_-prefixed admin+student in a fresh TEST_It9_Hostel_<uuid>; fixture teardown deletes users, email_otps, daily_plans, menus, necessary_info for those hostels. Verified no TEST_It9_ residue remains in any collection post-run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 9 added a ?for=today|tomorrow query param (FastAPI Literal alias='for', default 'today') to GET /api/student/today and GET /api/admin/dashboard. Both endpoints now return an extra `for` field in the response. The student PUT /api/student/today endpoint was UNCHANGED API-wise — it already accepted `date` in the body — but is now exercised for both today AND tomorrow dates by the new frontend toggle. The upsert key remains (student_id, date), so today and tomorrow plans coexist without overwrites. Admin dashboard aggregation correctly filters daily_plans by date (verified by isolation test). To test the toggle end-to-end backend, the canonical pattern is: register admin (auto-approves on fresh hostel) + register student in same hostel + flip approval_status to 'approved' in MongoDB, then PUT a plan with date=tomorrow ISO and assert GET ?for=tomorrow surfaces it while ?for=today does not. Day names are returned LOWERCASE (per DAYS constant: 'monday'..'sunday'). The iteration 8 OTP/auth tests still pass cleanly alongside, confirming no auth regression. SMTP remains live (gmail app password) — every register call sends a real email; consider rate-limiting future runs. EXPO_PUBLIC_BACKEND_URL is the public env var to use.",
+  "rca_of_issue": "Initial test run had 4 failures, all due to my test asserting title-case day names ('Tuesday') while the server returns lowercase ('tuesday') from its DAYS constant. Fixed the test (single-line constant change) and all 18 tests now pass. No backend code change required — the lowercase return is by design and consistent with the menu lookup key."
+}

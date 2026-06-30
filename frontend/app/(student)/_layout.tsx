@@ -23,7 +23,7 @@ export default function StudentTabsLayout() {
         sceneStyle: { backgroundColor: c.bg },
       }}
     >
-      <Tabs.Screen name="home" options={{ title: "Today" }} />
+      <Tabs.Screen name="home" options={{ title: "Home" }} />
       <Tabs.Screen name="menu" options={{ title: "Menu" }} />
       <Tabs.Screen name="wastage" options={{ title: "Wastage" }} />
       <Tabs.Screen name="settings" options={{ title: "Settings" }} />

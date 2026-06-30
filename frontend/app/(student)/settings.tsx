@@ -21,6 +21,8 @@ type Row = {
 };
 
 function SettingsRow({ icon, label, value, testID, onPress, disabledNote }: Row) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
     <TouchableOpacity
       testID={testID}
@@ -30,7 +32,7 @@ function SettingsRow({ icon, label, value, testID, onPress, disabledNote }: Row)
       style={styles.row}
     >
       <View style={styles.rowIcon}>
-        <Feather name={icon} size={18} color={colors.primary} />
+        <Feather name={icon} size={18} color={c.primary} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.rowLabel}>{label}</Text>
@@ -40,7 +42,7 @@ function SettingsRow({ icon, label, value, testID, onPress, disabledNote }: Row)
       <Feather
         name="chevron-right"
         size={18}
-        color={onPress ? colors.textSecondary : colors.textTertiary}
+        color={onPress ? c.textSecondary : c.textTertiary}
       />
     </TouchableOpacity>
   );

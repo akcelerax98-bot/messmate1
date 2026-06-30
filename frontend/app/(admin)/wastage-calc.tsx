@@ -58,6 +58,8 @@ function MealEntryEditor({
   drafts: Draft[];
   setDrafts: (d: Draft[]) => void;
 }) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const update = (i: number, patch: Partial<Draft>) => {
     setDrafts(drafts.map((d, idx) => (idx === i ? { ...d, ...patch } : d)));
   };
@@ -68,7 +70,7 @@ function MealEntryEditor({
     <View style={styles.editorBlock} testID={`wastage-editor-${meal}`}>
       <View style={styles.editorHead}>
         <View style={styles.editorIcon}>
-          <Feather name={ICON[meal]} size={16} color={colors.primary} />
+          <Feather name={ICON[meal]} size={16} color={c.primary} />
         </View>
         <Text style={styles.editorTitle}>{meal.charAt(0).toUpperCase() + meal.slice(1)}</Text>
         <View style={{ flex: 1 }} />
@@ -77,7 +79,7 @@ function MealEntryEditor({
           onPress={() => setDrafts([...drafts, newDraft()])}
           style={styles.addBtn}
         >
-          <Feather name="plus" size={14} color={colors.primary} />
+          <Feather name="plus" size={14} color={c.primary} />
           <Text style={styles.addBtnText}>Add</Text>
         </TouchableOpacity>
       </View>
@@ -89,7 +91,7 @@ function MealEntryEditor({
             <TextInput
               testID={`wastage-${meal}-name-${i}`}
               placeholder="Item"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor={c.textSecondary}
               style={[styles.input, { flex: 1.4 }]}
               value={d.item_name}
               onChangeText={(t) => update(i, { item_name: t })}
@@ -97,7 +99,7 @@ function MealEntryEditor({
             <TextInput
               testID={`wastage-${meal}-qty-${i}`}
               placeholder="Qty"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor={c.textSecondary}
               style={[styles.input, { flex: 0.8 }]}
               keyboardType="decimal-pad"
               value={d.quantity}
@@ -112,7 +114,7 @@ function MealEntryEditor({
                     onPress={() => update(i, { unit: u })}
                     style={[
                       styles.unitChip,
-                      d.unit === u && { backgroundColor: colors.primary },
+                      d.unit === u && { backgroundColor: c.primary },
                     ]}
                   >
                     <Text
@@ -132,7 +134,7 @@ function MealEntryEditor({
               onPress={() => remove(i)}
               style={styles.removeBtn}
             >
-              <Feather name="x" size={16} color={colors.danger} />
+              <Feather name="x" size={16} color={c.danger} />
             </TouchableOpacity>
           </View>
         ))
@@ -235,7 +237,7 @@ export default function AdminWastageCalc() {
     return (
       <SafeAreaView style={styles.safe} edges={["top"]}>
         <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
+          <ActivityIndicator color={c.primary} />
         </View>
       </SafeAreaView>
     );
@@ -283,7 +285,7 @@ export default function AdminWastageCalc() {
                 setRefreshing(true);
                 load();
               }}
-              tintColor={colors.primary}
+              tintColor={c.primary}
             />
           }
         >
@@ -332,19 +334,19 @@ export default function AdminWastageCalc() {
             <Text style={styles.subLabel}>Today by meal</Text>
             <View style={styles.row3}>
               <View style={styles.tiny}>
-                <Feather name="coffee" size={14} color={colors.primary} />
+                <Feather name="coffee" size={14} color={c.primary} />
                 <Text style={styles.tinyLabel}>Breakfast</Text>
                 <Text style={styles.tinyValue}>{fmtKg(today?.breakfast_wastage_kg)}</Text>
                 <Text style={styles.tinyMoney}>{fmtMoney(today?.breakfast_loss)}</Text>
               </View>
               <View style={styles.tiny}>
-                <Feather name="sun" size={14} color={colors.primary} />
+                <Feather name="sun" size={14} color={c.primary} />
                 <Text style={styles.tinyLabel}>Lunch</Text>
                 <Text style={styles.tinyValue}>{fmtKg(today?.lunch_wastage_kg)}</Text>
                 <Text style={styles.tinyMoney}>{fmtMoney(today?.lunch_loss)}</Text>
               </View>
               <View style={styles.tiny}>
-                <Feather name="moon" size={14} color={colors.primary} />
+                <Feather name="moon" size={14} color={c.primary} />
                 <Text style={styles.tinyLabel}>Dinner</Text>
                 <Text style={styles.tinyValue}>{fmtKg(today?.dinner_wastage_kg)}</Text>
                 <Text style={styles.tinyMoney}>{fmtMoney(today?.dinner_loss)}</Text>
@@ -377,7 +379,7 @@ export default function AdminWastageCalc() {
             <View style={styles.editorBlock} testID="wastage-editor-manual-cost">
               <View style={styles.editorHead}>
                 <View style={styles.editorIcon}>
-                  <Feather name="dollar-sign" size={16} color={colors.primary} />
+                  <Feather name="dollar-sign" size={16} color={c.primary} />
                 </View>
                 <Text style={styles.editorTitle}>Today's wastage cost (₹)</Text>
               </View>
@@ -391,7 +393,7 @@ export default function AdminWastageCalc() {
                 onChangeText={setManualCost}
                 placeholder="e.g., 1200"
                 keyboardType="decimal-pad"
-                placeholderTextColor={colors.textSecondary}
+                placeholderTextColor={c.textSecondary}
                 style={[
                   styles.input,
                   { marginTop: 8, paddingVertical: 12, fontSize: 16 },

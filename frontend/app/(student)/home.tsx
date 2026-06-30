@@ -53,11 +53,13 @@ const MEAL_ICONS: Record<MealType, keyof typeof Feather.glyphMap> = {
 };
 
 type ToastState = { message: string; variant: "success" | "error" | "info" } | null;
+type ForDay = "today" | "tomorrow";
 
 export default function StudentHome() {
   const { c } = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
   const { token, user } = useAuth();
+  const [forDay, setForDay] = useState<ForDay>("today");
   const [data, setData] = useState<TodayResponse | null>(null);
   const [reasons, setReasons] = useState<string[]>([]);
   const [breakfast, setBreakfast] = useState<MealPlan>(DEFAULT_PLAN);
@@ -88,7 +90,7 @@ export default function StudentHome() {
     if (!token) return;
     try {
       const [todayRes, metaRes] = await Promise.all([
-        api.studentToday(token),
+        api.studentToday(token, forDay),
         api.studentMeta(token),
       ]);
       setData(todayRes);
@@ -123,14 +125,18 @@ export default function StudentHome() {
         dinner: parseOther(d),
       });
     } catch (e: any) {
-      setToast({ message: e?.message || "Failed to load today's plan", variant: "error" });
+      setToast({
+        message: e?.message || `Failed to load ${forDay === "today" ? "today's" : "tomorrow's"} plan`,
+        variant: "error",
+      });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token]);
+  }, [token, forDay]);
 
   useEffect(() => {
+    setLoading(true);
     load();
   }, [load]);
 
@@ -183,8 +189,16 @@ export default function StudentHome() {
     if (!token) return;
     setSaving(true);
     try {
-      await api.upsertToday(token, { breakfast, lunch, dinner });
-      setToast({ message: "Today's plan saved", variant: "success" });
+      await api.upsertToday(token, {
+        date: data?.date || null,
+        breakfast,
+        lunch,
+        dinner,
+      });
+      setToast({
+        message: `${forDay === "today" ? "Today's" : "Tomorrow's"} plan saved`,
+        variant: "success",
+      });
     } catch (e: any) {
       setToast({ message: e?.message || "Save failed", variant: "error" });
     } finally {
@@ -341,7 +355,9 @@ export default function StudentHome() {
           <View style={styles.headerBlock}>
             <View style={styles.headerRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.eyebrow}>TODAY'S PLAN</Text>
+                <Text style={styles.eyebrow}>
+                  {forDay === "today" ? "TODAY'S PLAN" : "TOMORROW'S PLAN"}
+                </Text>
                 <Text style={styles.greeting} testID="home-greeting">
                   Hi, {user?.full_name || "there"}
                 </Text>
@@ -351,6 +367,39 @@ export default function StudentHome() {
               </View>
               <NotifBell testID="home-bell" />
             </View>
+          </View>
+
+          {/* Today / Tomorrow toggle */}
+          <View style={styles.dayToggle} testID="home-day-toggle">
+            {(["today", "tomorrow"] as ForDay[]).map((opt) => {
+              const active = forDay === opt;
+              return (
+                <TouchableOpacity
+                  key={opt}
+                  testID={`home-day-${opt}`}
+                  activeOpacity={0.85}
+                  onPress={() => setForDay(opt)}
+                  style={[
+                    styles.dayToggleBtn,
+                    active && { backgroundColor: c.card },
+                  ]}
+                >
+                  <Feather
+                    name={opt === "today" ? "sun" : "sunrise"}
+                    size={14}
+                    color={active ? c.primary : c.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.dayToggleLabel,
+                      { color: active ? c.textPrimary : c.textSecondary },
+                    ]}
+                  >
+                    {opt === "today" ? "Today" : "Tomorrow"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* Menu summary */}
@@ -392,7 +441,13 @@ export default function StudentHome() {
 
               <Button
                 testID="home-save-plan"
-                label={saving ? "Saving..." : "Save today's plan"}
+                label={
+                  saving
+                    ? "Saving..."
+                    : forDay === "today"
+                      ? "Save today's plan"
+                      : "Save tomorrow's plan"
+                }
                 onPress={onSave}
                 loading={saving}
                 style={{ marginTop: spacing.md }}
@@ -474,6 +529,24 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
   },
   greeting: { ...typography.title1, color: c.textPrimary },
   dateLine: { ...typography.subhead, color: c.textSecondary, marginTop: 4 },
+
+  dayToggle: {
+    flexDirection: "row",
+    backgroundColor: c.inputBg,
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: spacing.md,
+  },
+  dayToggleBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  dayToggleLabel: { ...typography.footnote, fontWeight: "700" },
 
   card: {
     backgroundColor: c.card,

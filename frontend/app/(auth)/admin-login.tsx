@@ -93,7 +93,7 @@ export default function AdminLogin() {
 
           <View style={{ marginTop: spacing.xl }}>
             <Input
-              testID="admin-institution-input"
+              testID="admin-hostel-input"
               label="Institution / Hostel name"
               placeholder="e.g., Demo Hostel"
               value={institution}

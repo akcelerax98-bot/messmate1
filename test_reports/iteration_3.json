@@ -1,0 +1,54 @@
+{
+  "summary": "Part 2 — Student side end-to-end testing on live preview URL. BACKEND: 34/35 pytest pass (97.1%). Auth suite (15/15) and student suite (19/20) — one real bug discovered in GET /api/student/wastage when range=7: summary.last_week_same_day_total is null because the Mongo query window is today-(range-1) .. today, so the day-7 record (last-week-same-day) is excluded from `by_date`. For range=30 and 90 it works correctly; per-meal filters (breakfast/lunch/dinner) and 7-entry series for range=7 are correct. All 403/401 guards verified for admin, pending, blocked, no-token and invalid-token across the 5 student GET endpoints plus PUT/POST variants. Idempotent upserts confirmed for /student/today (PUT twice → updates same doc) and /student/menu/reaction (PUT twice → updates same doc). FRONTEND (390x844 mobile viewport): Welcome → Student login → Home renders 'Hi, Demo Student', 'Tuesday, June 30', menu summary (B/L/D items). Breakfast ON/OFF toggle works; OFF reveals 7 reason chips; 'Other' reveals meal-breakfast-reason-other-input. Multi-select item chips for breakfast (Pongal/Vada/Chutney) work. home-save-plan persisted ON breakfast with selected items [Pongal, Vada] verified via API after reload. home-feedback-submit clears the textarea (anonymous feedback POSTed). Menu tab: Weekly cards render, monday-breakfast-like clickable, Monthly mode renders 28 day cards (4 weeks × 7). Wastage tab: today total 9.7 kg + breakfast 2.7 / lunch 3.8 / dinner 3.2, yesterday 10.8 kg, last-week-same-day 10.8 kg, bar chart rendered; range Segmented (7/30/90) and meal Segmented (all/B/L/D) both update the chart. Settings shows Demo Student / Demo Hostel / Room A101 with all 4 profile rows populated; student-settings-logout returns to Welcome. Pre-existing warnings carried over: 'shadow*' deprecation and 'props.pointerEvents' deprecation — non-blocking. No React Native red screens, no deprecated expo packages found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/student/wastage?range=7",
+        "issue": "summary.last_week_same_day_total returns null when range=7. Root cause: start = today - timedelta(days=range-1) only fetches today-6..today; the day-7 record is outside the cursor's date filter so by_date.get(today-7) is None. For range>=8 it works. The frontend currently still shows '10.8 kg' for last-week-same-day in the screenshot — investigate whether the frontend forces a wider range or whether it falls back. Fix: widen the cursor window to include at least (today - 7) regardless of range, or query last_week_row separately."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "global (web)",
+        "issues": [
+          "Carry-over cosmetic console warnings: '\"shadow*\" style props are deprecated. Use \"boxShadow\"' (theme shadow.card) and 'props.pointerEvents is deprecated. Use style.pointerEvents'. Non-blocking on native; only affects web parity."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_student.py",
+    "/app/backend/tests/test_auth.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix GET /api/student/wastage range=7 so summary.last_week_same_day_total includes day-7 record. Suggested: query last-week-same-day row outside the range-bound cursor (separate find_one on date == today-7), or expand cursor lower bound to min(today-(range-1), today-7).",
+    "(Optional polish, carry-over) Replace shadow.* with boxShadow in theme.ts; audit deprecated pointerEvents prop."
+  ],
+  "critical_code_review_comments": [
+    "server.py L466-516: wastage summary mixes two concerns — range-bound series and fixed three summary cards. The summary cards should be computed from independent find_one calls keyed on today, today-1, today-7, not from the (possibly truncated) `rows` cursor.",
+    "server.py L424: student_menu_month re-uses weekly menu × 4 — acceptable placeholder per the agent-to-agent note. Confirmed intentional.",
+    "server.py L355-359: daily_plans upsert uses ($set + $setOnInsert + upsert=True) keyed by (student_id, date). Backed by unique index L732. Solid.",
+    "server.py L436-456: menu_reactions upsert keyed by (student_id, day, meal_type). Unique index L733-735 enforces no-duplicates. Solid.",
+    "Validators: PUT /student/menu/reaction validates day, but invalid meal_type / reaction are rejected by Pydantic Literal (422). Good.",
+    "Authorization: require_approved_student returns 403 for non-students and non-approved. All 5 GET endpoints + 3 mutating endpoints verified via test_student.py::TestAuthGuards."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_student.py (new — 20 student-side tests covering meta/today/upsert/feedback/menu week+month/reactions/wastage/auth-guards)"
+  ],
+  "success_rate": {
+    "backend": "97.1% (34/35 pytest)",
+    "frontend": "100% on the executed flows (login, ON/OFF toggle, OFF→reason→Other, multi-select items, save plan + persistence-via-API, anonymous feedback clear, Menu Weekly/Monthly, like reaction, Wastage today/yesterday/last-week + range + meal filters + bar chart, Settings profile + logout-to-Welcome)"
+  },
+  "seed_data_creation": "No test seed creation needed — backend startup seeds 4 users, 7 menus, 95 days of wastage idempotently. Tests create TEST_-prefixed registration entry but it's a new student row and does not affect existing data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Frontend is Expo Router + SSR + CSR: every testID has TWO DOM nodes (hidden SSR copy + visible CSR copy). Always pick the visible one by filtering with getBoundingClientRect().width > 0. Pattern used in iteration_3 — see browser_automation script helpers click_v / fill_v / text_v. Welcome uses testIDs role-student-card / role-admin-card (NOT welcome-student-card). Login inputs are student-mobile-input / student-password-input / student-login-submit. Menu mode segmented testIDs are menu-mode-weekly / menu-mode-monthly. Tabs use Expo Router default Tabs (no custom testID) — click by visible label text ('Today','Menu','Wastage','Settings'). Wastage summary card testIDs: wastage-today-total / wastage-yesterday-total / wastage-lastweek-total / wastage-today-breakfast / -lunch / -dinner. Range: wastage-range-7|30|90. Meal: wastage-meal-all|breakfast|lunch|dinner. Backend wastage range=7 has a known bug where summary.last_week_same_day_total is null (see action items).",
+  "rca_of_issue": "wastage last_week_same_day_total null at range=7: server.py student_wastage() builds `by_date` from a cursor filtered on date BETWEEN (today - (range-1)) AND today. With range=7 the cursor's lower bound is today-6, so the document for today-7 is NEVER fetched, and by_date.get((today-timedelta(7)).isoformat()) returns None. The other summary cards (today, yesterday) lie inside the window for any range>=2 so they work. Mitigation: either query last_week_row via an independent find_one keyed on date == (today-7).isoformat(), or widen the cursor window to include at least today-7."
+}

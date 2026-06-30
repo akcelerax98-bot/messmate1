@@ -3,12 +3,14 @@
 const BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
 if (!BASE_URL) {
-  // Fail fast at import-time so misconfig is obvious.
   console.warn("EXPO_PUBLIC_BACKEND_URL is not defined");
 }
 
 export type ApprovalStatus = "pending" | "approved" | "rejected_or_blocked";
 export type Role = "student" | "admin";
+export type MealStatus = "ON" | "OFF";
+export type MealType = "breakfast" | "lunch" | "dinner";
+export type Reaction = "like" | "dislike" | "no_response";
 
 export type User = {
   id: string;
@@ -26,6 +28,60 @@ export type TokenResponse = {
   access_token: string;
   token_type: string;
   user: User;
+};
+
+export type CustomQuestion = { text: string; options: string[] } | null;
+
+export type MealPlan = {
+  status: MealStatus | null;
+  selected_items: string[];
+  reason_if_off: string | null;
+  custom_answer: string | null;
+};
+
+export type DailyMenu = {
+  day: string;
+  breakfast_items: string[];
+  lunch_items: string[];
+  dinner_items: string[];
+  breakfast_custom_question: CustomQuestion;
+  lunch_custom_question: CustomQuestion;
+  dinner_custom_question: CustomQuestion;
+};
+
+export type WeeklyDay = DailyMenu & {
+  reactions: { breakfast: Reaction; lunch: Reaction; dinner: Reaction };
+};
+
+export type TodayResponse = {
+  date: string;
+  day: string;
+  menu: DailyMenu | null;
+  plan: {
+    date: string;
+    breakfast: Partial<MealPlan>;
+    lunch: Partial<MealPlan>;
+    dinner: Partial<MealPlan>;
+    updated_at?: string;
+  } | null;
+};
+
+export type WastageSummary = {
+  today: {
+    breakfast: number | null;
+    lunch: number | null;
+    dinner: number | null;
+    total: number | null;
+  };
+  yesterday_total: number | null;
+  last_week_same_day_total: number | null;
+};
+
+export type WastageResponse = {
+  range: number;
+  meal: "all" | MealType;
+  series: { date: string; value: number }[];
+  summary: WastageSummary;
 };
 
 async function request<T>(
@@ -54,6 +110,7 @@ async function request<T>(
 }
 
 export const api = {
+  // Auth
   registerStudent: (payload: {
     full_name: string;
     mobile_or_user_id: string;
@@ -69,4 +126,59 @@ export const api = {
   }) => request<TokenResponse>("/auth/login", { method: "POST", body: payload }),
 
   me: (token: string) => request<User>("/auth/me", { token }),
+
+  // Student
+  studentMeta: (token: string) =>
+    request<{ reasons: string[]; days: string[] }>("/student/meta", { token }),
+
+  studentToday: (token: string) =>
+    request<TodayResponse>("/student/today", { token }),
+
+  upsertToday: (
+    token: string,
+    body: {
+      breakfast: Partial<MealPlan>;
+      lunch: Partial<MealPlan>;
+      dinner: Partial<MealPlan>;
+    },
+  ) =>
+    request<{ ok: boolean; plan: TodayResponse["plan"] }>("/student/today", {
+      method: "PUT",
+      body,
+      token,
+    }),
+
+  postFeedback: (token: string, feedback_text: string) =>
+    request<{ ok: boolean; id: string; created_at: string }>("/student/feedback", {
+      method: "POST",
+      body: { feedback_text },
+      token,
+    }),
+
+  menuWeek: (token: string) =>
+    request<{ days: WeeklyDay[] }>("/student/menu/week", { token }),
+
+  menuMonth: (token: string) =>
+    request<{ weeks: { label: string; days: WeeklyDay[] }[] }>("/student/menu/month", {
+      token,
+    }),
+
+  setReaction: (
+    token: string,
+    body: { day: string; meal_type: MealType; reaction: Reaction },
+  ) =>
+    request<{ ok: boolean; reaction: Reaction }>("/student/menu/reaction", {
+      method: "PUT",
+      body,
+      token,
+    }),
+
+  wastage: (
+    token: string,
+    range: 7 | 30 | 90,
+    meal: "all" | MealType,
+  ) =>
+    request<WastageResponse>(`/student/wastage?range=${range}&meal=${meal}`, {
+      token,
+    }),
 };

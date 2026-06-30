@@ -1,0 +1,154 @@
+{
+  "theme": "LIGHT",
+  "archetype": "Archetype 1: Organic & Earthy (Apple-style variant)",
+  "design_philosophy": "Eco-Minimalism. Clean, Apple-style premium interface with a focus on sustainability, reducing food waste, and intuitive meal planning. High-contrast legibility, generous white space, soft pill-shaped edges, and liquid glass interactions.",
+  "colors": {
+    "primary": {
+      "default": "#248243",
+      "light": "#E8F5E9",
+      "dark": "#1A4D2E"
+    },
+    "background": {
+      "main": "#F9F9F9",
+      "card": "#FFFFFF",
+      "overlay": "rgba(0, 0, 0, 0.4)",
+      "input": "#F2F2F7"
+    },
+    "text": {
+      "primary": "#1C1C1E",
+      "secondary": "#8E8E93",
+      "tertiary": "#C7C7CC",
+      "inverse": "#FFFFFF",
+      "accent": "#248243"
+    },
+    "status": {
+      "success": "#34C759",
+      "danger": "#FF3B30",
+      "warning": "#FF9500",
+      "pending": "#F59E0B"
+    },
+    "border": "#E5E5EA"
+  },
+  "typography": {
+    "font_family": "Plus Jakarta Sans, System",
+    "scale": {
+      "large_title": { "size": 34, "weight": "700", "tracking": -0.5 },
+      "title_1": { "size": 28, "weight": "700", "tracking": 0 },
+      "title_2": { "size": 22, "weight": "600", "tracking": 0 },
+      "headline": { "size": 17, "weight": "600", "tracking": -0.4 },
+      "body": { "size": 17, "weight": "400", "tracking": -0.4 },
+      "callout": { "size": 16, "weight": "400", "tracking": -0.3 },
+      "subhead": { "size": 15, "weight": "400", "tracking": -0.2 },
+      "footnote": { "size": 13, "weight": "500", "tracking": 0 },
+      "caption": { "size": 12, "weight": "400", "tracking": 0 }
+    }
+  },
+  "spacing": {
+    "system": "8pt grid",
+    "values": {
+      "xs": 4,
+      "sm": 8,
+      "md": 16,
+      "lg": 24,
+      "xl": 32,
+      "xxl": 48
+    },
+    "screen_padding": 24
+  },
+  "components": {
+    "buttons": {
+      "primary": {
+        "bg": "#248243",
+        "text": "#FFFFFF",
+        "border_radius": 16,
+        "height": 56,
+        "font_weight": "600"
+      },
+      "secondary": {
+        "bg": "#E8F5E9",
+        "text": "#248243",
+        "border_radius": 16,
+        "height": 56,
+        "font_weight": "600"
+      }
+    },
+    "cards": {
+      "bg": "#FFFFFF",
+      "border_radius": 24,
+      "padding": 20,
+      "shadow": "0px 8px 24px rgba(0,0,0,0.04)"
+    },
+    "chips": {
+      "border_radius": 9999,
+      "padding_v": 10,
+      "padding_h": 16,
+      "unselected": { "bg": "#F2F2F7", "text": "#3C3C43" },
+      "selected": { "bg": "#248243", "text": "#FFFFFF" }
+    },
+    "inputs": {
+      "bg": "#F2F2F7",
+      "border_radius": 14,
+      "height": 54,
+      "padding_h": 16,
+      "placeholder_color": "#8E8E93"
+    },
+    "badges": {
+      "border_radius": 8,
+      "padding_v": 6,
+      "padding_h": 10,
+      "font_size": 13,
+      "font_weight": "600",
+      "pending": { "bg": "#FFFBEB", "text": "#F59E0B" },
+      "approved": { "bg": "#E8F5E9", "text": "#248243" },
+      "blocked": { "bg": "#FEF2F2", "text": "#FF3B30" }
+    },
+    "tab_bar": {
+      "bg": "#FFFFFF",
+      "border_top": "#E5E5EA",
+      "active_color": "#248243",
+      "inactive_color": "#8E8E93"
+    }
+  },
+  "icons": {
+    "library": "@expo/vector-icons (Feather)",
+    "style": "Minimalist, stroke-based, no filled icons unless representing an active tab.",
+    "examples": {
+      "home": "home",
+      "menu": "calendar",
+      "wastage": "pie-chart",
+      "settings": "settings"
+    }
+  },
+  "screens": {
+    "welcome": "Apple-style hero layout. Top: App Logo & minimal food illustration. Bottom: 'I am a Student' and 'I am an Admin' large primary/secondary CTA buttons.",
+    "login_student": "Clean Apple-style form. Title 1: 'Welcome Back'. Inputs: Mobile, Password. Large primary CTA.",
+    "register_student": "Scrollable form with Title 1. Inputs: Full Name, Mobile, Hostel, Room No, Password, Confirm Password. Subdued block for OTP placeholder.",
+    "pending_approval": "Centered layout with warning/pending icon. 'Account under review' message. Subtle soft-yellow badge.",
+    "blocked": "Centered layout with danger icon. 'Account Blocked' message. Red danger badge.",
+    "student_tabs": {
+      "home": "Today's Plan. Large ON/OFF toggle card for upcoming meals. Tappable chips for preferences.",
+      "menu": "Grid/List of days. Tappable chips for multi-select preferences (e.g., Idly, Dosa).",
+      "wastage": "Charts showing personal/mess waste.",
+      "settings": "Standard Apple-style settings list."
+    },
+    "admin_tabs": {
+      "students_status": "List of students with Pending/Approved/Blocked badges. Swipe-to-action rows.",
+      "dashboard": "Bento grid layout. Key metrics (Eating count, pending approvals, cook qty).",
+      "wastage_calc": "Data entry forms for daily leftover food. Calculation cards for loss and savings.",
+      "info": "List of important notices or rules.",
+      "settings": "Admin settings and profile management."
+    }
+  },
+  "testing": {
+    "requirements": "All interactive elements MUST include a 'testID' (React Native) or 'data-testid' attribute using kebab-case role-based naming (e.g., testID='student-login-button')."
+  },
+  "media": {
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzR8MHwxfHNlYXJjaHwxfHxoZWFsdGh5JTIwZm9vZCUyMGZyZXNoJTIwYm93bCUyMG1pbmltYWx8ZW58MHx8fHwxNzgyNzk2NDM3fDA&ixlib=rb-4.1.0&q=85",
+        "category": "hero",
+        "description": "Minimal healthy food bowl, perfect for the Welcome screen hero visual."
+      }
+    ]
+  }
+}

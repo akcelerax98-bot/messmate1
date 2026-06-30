@@ -2,7 +2,7 @@
 // Inputs per meal-item (qty + unit), computed loss/savings + trend chart.
 
 import { Feather } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useMemo, useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -30,7 +30,7 @@ import { Button } from "@/src/components/Button";
 import { Segmented } from "@/src/components/Segmented";
 import { StatTile } from "@/src/components/StatTile";
 import { Toast } from "@/src/components/Toast";
-import { colors, radius, shadow, spacing, typography } from "@/src/theme";
+import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 type Range = "7" | "30" | "90";
 type MealFilter = "all" | MealType;
@@ -142,6 +142,8 @@ function MealEntryEditor({
 }
 
 export default function AdminWastageCalc() {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const { token } = useAuth();
   const [data, setData] = useState<AdminWastageToday | null>(null);
   const [trend, setTrend] = useState<AdminWastageTrend | null>(null);
@@ -473,24 +475,24 @@ export default function AdminWastageCalc() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 32 },
   header: { marginBottom: spacing.md },
   eyebrow: {
     ...typography.caption,
-    color: colors.primary,
+    color: c.primary,
     letterSpacing: 1.5,
     fontWeight: "700",
     marginBottom: 6,
   },
-  title: { ...typography.title1, color: colors.textPrimary },
-  subtitle: { ...typography.subhead, color: colors.textSecondary, marginTop: 4 },
+  title: { ...typography.title1, color: c.textPrimary },
+  subtitle: { ...typography.subhead, color: c.textSecondary, marginTop: 4 },
   tilesGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: spacing.md },
 
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.xl,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -498,32 +500,32 @@ const styles = StyleSheet.create({
   },
   cardLabel: {
     ...typography.footnote,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.5,
     marginBottom: 4,
   },
-  cardTitle: { ...typography.title2, color: colors.textPrimary, marginBottom: spacing.md },
-  midNumber: { ...typography.title1, fontSize: 22, color: colors.textPrimary },
-  midMoney: { ...typography.subhead, color: colors.danger, marginTop: 2, fontWeight: "700" },
+  cardTitle: { ...typography.title2, color: c.textPrimary, marginBottom: spacing.md },
+  midNumber: { ...typography.title1, fontSize: 22, color: c.textPrimary },
+  midMoney: { ...typography.subhead, color: c.danger, marginTop: 2, fontWeight: "700" },
   row2: { flexDirection: "row", gap: 10 },
   compareCard: { flex: 1 },
   row3: { flexDirection: "row", gap: 10 },
   tiny: { flex: 1, gap: 2 },
-  tinyLabel: { ...typography.caption, color: colors.textSecondary },
-  tinyValue: { ...typography.headline, color: colors.textPrimary },
-  tinyMoney: { ...typography.caption, color: colors.danger, fontWeight: "700" },
+  tinyLabel: { ...typography.caption, color: c.textSecondary },
+  tinyValue: { ...typography.headline, color: c.textPrimary },
+  tinyMoney: { ...typography.caption, color: c.danger, fontWeight: "700" },
 
   subLabel: {
     ...typography.footnote,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.5,
     marginBottom: 8,
   },
   sectionLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 1,
     marginLeft: 4,
@@ -542,47 +544,47 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  editorTitle: { ...typography.headline, color: colors.textPrimary },
-  editorMuted: { ...typography.caption, color: colors.textSecondary, fontStyle: "italic" },
+  editorTitle: { ...typography.headline, color: c.textPrimary },
+  editorMuted: { ...typography.caption, color: c.textSecondary, fontStyle: "italic" },
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
     borderRadius: 8,
   },
-  addBtnText: { ...typography.caption, color: colors.primary, fontWeight: "700" },
+  addBtnText: { ...typography.caption, color: c.primary, fontWeight: "700" },
 
   draftRow: { flexDirection: "row", gap: 6, alignItems: "center", marginBottom: 6 },
   input: {
-    backgroundColor: colors.inputBg,
+    backgroundColor: c.inputBg,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
     fontSize: 13,
-    color: colors.textPrimary,
+    color: c.textPrimary,
   },
   unitPicker: {},
   unitChip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: colors.inputBg,
+    backgroundColor: c.inputBg,
     borderRadius: 8,
     marginRight: 4,
   },
-  unitChipText: { ...typography.caption, color: colors.textPrimary, fontWeight: "600" },
+  unitChipText: { ...typography.caption, color: c.textPrimary, fontWeight: "600" },
   removeBtn: { padding: 6 },
-  hint: { ...typography.caption, color: colors.textSecondary, marginTop: 6, textAlign: "center" },
+  hint: { ...typography.caption, color: c.textSecondary, marginTop: 6, textAlign: "center" },
 
   filterLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     marginBottom: 6,
   },
 });

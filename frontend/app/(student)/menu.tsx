@@ -22,7 +22,7 @@ import {
 import { useAuth } from "@/src/auth/AuthContext";
 import { Segmented } from "@/src/components/Segmented";
 import { Toast } from "@/src/components/Toast";
-import { colors, radius, shadow, spacing, typography } from "@/src/theme";
+import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 type ViewMode = "weekly" | "monthly";
 
@@ -37,6 +37,8 @@ function cap(s: string) {
 }
 
 export default function StudentMenu() {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const { token } = useAuth();
   const [mode, setMode] = useState<ViewMode>("weekly");
   const [weekDays, setWeekDays] = useState<WeeklyDay[]>([]);
@@ -229,24 +231,24 @@ export default function StudentMenu() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 24 },
   header: { marginBottom: spacing.md },
   eyebrow: {
     ...typography.caption,
-    color: colors.primary,
+    color: c.primary,
     letterSpacing: 1.5,
     fontWeight: "700",
     marginBottom: 6,
   },
-  title: { ...typography.title1, color: colors.textPrimary },
-  subtitle: { ...typography.subhead, color: colors.textSecondary, marginTop: 4 },
+  title: { ...typography.title1, color: c.textPrimary },
+  subtitle: { ...typography.subhead, color: c.textSecondary, marginTop: 4 },
 
   weekLabel: {
     ...typography.footnote,
-    color: colors.primary,
+    color: c.primary,
     letterSpacing: 1,
     fontWeight: "700",
     marginBottom: 8,
@@ -254,7 +256,7 @@ const styles = StyleSheet.create({
   },
 
   dayCard: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.xl,
     padding: spacing.md + 2,
     marginBottom: spacing.sm + 4,
@@ -262,7 +264,7 @@ const styles = StyleSheet.create({
   },
   dayTitle: {
     ...typography.title2,
-    color: colors.textPrimary,
+    color: c.textPrimary,
     marginBottom: spacing.sm,
   },
   mealRow: { paddingVertical: 8 },
@@ -277,22 +279,22 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  mealTitle: { ...typography.headline, color: colors.textPrimary },
-  mealItems: { ...typography.subhead, color: colors.textSecondary, marginLeft: 32 },
+  mealTitle: { ...typography.headline, color: c.textPrimary },
+  mealItems: { ...typography.subhead, color: c.textSecondary, marginLeft: 32 },
   reactionRow: { flexDirection: "row", gap: 8 },
   reactBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: c.border,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
   },
-  empty: { ...typography.subhead, color: colors.textSecondary, textAlign: "center" },
+  empty: { ...typography.subhead, color: c.textSecondary, textAlign: "center" },
 });

@@ -2,7 +2,7 @@
 // Summary cards (today / yesterday / last week same day) + bar chart with filters.
 
 import { Feather } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useMemo, useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -18,7 +18,7 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { BarChart } from "@/src/components/BarChart";
 import { Segmented } from "@/src/components/Segmented";
 import { Toast } from "@/src/components/Toast";
-import { colors, radius, shadow, spacing, typography } from "@/src/theme";
+import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 type Range = "7" | "30" | "90";
 type MealFilter = "all" | "breakfast" | "lunch" | "dinner";
@@ -29,6 +29,8 @@ function fmt(v: number | null | undefined, suffix = "kg"): string {
 }
 
 export default function StudentWastage() {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const { token } = useAuth();
   const [range, setRange] = useState<Range>("7");
   const [meal, setMeal] = useState<MealFilter>("all");
@@ -186,23 +188,23 @@ export default function StudentWastage() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   loadingWrap: { paddingVertical: 60, alignItems: "center" },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 24 },
   header: { marginBottom: spacing.lg },
   eyebrow: {
     ...typography.caption,
-    color: colors.primary,
+    color: c.primary,
     letterSpacing: 1.5,
     fontWeight: "700",
     marginBottom: 6,
   },
-  title: { ...typography.title1, color: colors.textPrimary },
-  subtitle: { ...typography.subhead, color: colors.textSecondary, marginTop: 4 },
+  title: { ...typography.title1, color: c.textPrimary },
+  subtitle: { ...typography.subhead, color: c.textSecondary, marginTop: 4 },
 
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.xl,
     padding: spacing.md + 4,
     marginBottom: spacing.md,
@@ -210,41 +212,41 @@ const styles = StyleSheet.create({
   },
   cardLabel: {
     ...typography.footnote,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     marginBottom: 6,
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-  cardTitle: { ...typography.title2, color: colors.textPrimary, marginBottom: spacing.md },
+  cardTitle: { ...typography.title2, color: c.textPrimary, marginBottom: spacing.md },
   bigNumber: {
     ...typography.largeTitle,
-    color: colors.textPrimary,
+    color: c.textPrimary,
     fontSize: 40,
     lineHeight: 44,
   },
-  midNumber: { ...typography.title1, color: colors.textPrimary, fontSize: 24 },
+  midNumber: { ...typography.title1, color: c.textPrimary, fontSize: 24 },
   divider: {
     height: 1,
-    backgroundColor: colors.border,
+    backgroundColor: c.border,
     marginVertical: spacing.md,
   },
   row3: { flexDirection: "row", justifyContent: "space-between" },
   tinyStat: { flex: 1, gap: 4 },
-  tinyLabel: { ...typography.caption, color: colors.textSecondary },
-  tinyValue: { ...typography.headline, color: colors.textPrimary },
+  tinyLabel: { ...typography.caption, color: c.textSecondary },
+  tinyValue: { ...typography.headline, color: c.textPrimary },
 
   row2: { flexDirection: "row", gap: spacing.md, marginBottom: 0 },
   compareCard: { flex: 1, marginBottom: spacing.md },
 
   filterLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     marginBottom: 6,
     marginTop: 2,
   },
   empty: {
     ...typography.subhead,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     textAlign: "center",
     paddingVertical: spacing.lg,
   },

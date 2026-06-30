@@ -1,9 +1,9 @@
-// Segmented control — Apple-style. Pill row with selected segment highlighted.
+// Segmented control — Apple-style. Theme-reactive.
 
-import React from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from "react-native";
 
-import { colors, typography } from "@/src/theme";
+import { typography, useTheme, type ThemeColors } from "@/src/theme";
 
 type Option<T extends string> = { value: T; label: string; testID?: string };
 
@@ -22,6 +22,8 @@ export function Segmented<T extends string>({
   testID,
   style,
 }: Props<T>) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
     <View testID={testID} style={[styles.wrap, style]}>
       {options.map((opt) => {
@@ -37,7 +39,7 @@ export function Segmented<T extends string>({
             <Text
               style={[
                 styles.label,
-                { color: active ? colors.textPrimary : colors.textSecondary },
+                { color: active ? c.textPrimary : c.textSecondary },
               ]}
               numberOfLines={1}
             >
@@ -50,28 +52,29 @@ export function Segmented<T extends string>({
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: {
-    flexDirection: "row",
-    backgroundColor: colors.inputBg,
-    borderRadius: 12,
-    padding: 3,
-  },
-  seg: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  segActive: {
-    backgroundColor: colors.card,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  label: { ...typography.footnote, fontWeight: "600" },
-});
+const makeStyles = (c: ThemeColors) =>
+  StyleSheet.create({
+    wrap: {
+      flexDirection: "row",
+      backgroundColor: c.inputBg,
+      borderRadius: 12,
+      padding: 3,
+    },
+    seg: {
+      flex: 1,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    segActive: {
+      backgroundColor: c.card,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 4,
+      elevation: 1,
+    },
+    label: { ...typography.footnote, fontWeight: "600" },
+  });

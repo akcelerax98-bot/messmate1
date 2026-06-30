@@ -1,9 +1,9 @@
-// Shared text input — Apple-style soft-grey filled field.
+// Shared text input — Apple-style soft-grey filled field. Theme-reactive.
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { StyleSheet, Text, TextInput, TextInputProps, View } from "react-native";
 
-import { colors, radius, typography } from "@/src/theme";
+import { radius, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 type Props = TextInputProps & {
   label?: string;
@@ -12,13 +12,15 @@ type Props = TextInputProps & {
 };
 
 export function Input({ label, error, style, testID, ...props }: Props) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [focused, setFocused] = useState(false);
   return (
     <View style={styles.wrap}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
         testID={testID}
-        placeholderTextColor={colors.textSecondary}
+        placeholderTextColor={c.textTertiary}
         {...props}
         onFocus={(e) => {
           setFocused(true);
@@ -30,8 +32,8 @@ export function Input({ label, error, style, testID, ...props }: Props) {
         }}
         style={[
           styles.input,
-          focused && { borderColor: colors.primary },
-          !!error && { borderColor: colors.danger },
+          focused && { borderColor: c.primary },
+          !!error && { borderColor: c.danger },
           style,
         ]}
       />
@@ -40,28 +42,29 @@ export function Input({ label, error, style, testID, ...props }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: { marginBottom: 14 },
-  label: {
-    ...typography.footnote,
-    color: colors.textSecondary,
-    marginBottom: 6,
-    marginLeft: 4,
-  },
-  input: {
-    height: 54,
-    backgroundColor: colors.inputBg,
-    borderRadius: radius.md,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: colors.textPrimary,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  errorText: {
-    ...typography.caption,
-    color: colors.danger,
-    marginTop: 6,
-    marginLeft: 4,
-  },
-});
+const makeStyles = (c: ThemeColors) =>
+  StyleSheet.create({
+    wrap: { marginBottom: 14 },
+    label: {
+      ...typography.footnote,
+      color: c.textSecondary,
+      marginBottom: 6,
+      marginLeft: 4,
+    },
+    input: {
+      height: 54,
+      backgroundColor: c.inputBg,
+      borderRadius: radius.md,
+      paddingHorizontal: 16,
+      fontSize: 16,
+      color: c.textPrimary,
+      borderWidth: 1,
+      borderColor: "transparent",
+    },
+    errorText: {
+      ...typography.caption,
+      color: c.danger,
+      marginTop: 6,
+      marginLeft: 4,
+    },
+  });

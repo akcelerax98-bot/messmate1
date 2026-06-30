@@ -29,7 +29,7 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { Button } from "@/src/components/Button";
 import { Segmented } from "@/src/components/Segmented";
 import { Toast } from "@/src/components/Toast";
-import { colors, radius, shadow, spacing, typography } from "@/src/theme";
+import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 const DAYS = [
   "monday",
@@ -351,6 +351,8 @@ function CustomQEditor({ menu, onSave }: { menu: DailyMenu; onSave: (d: DailyMen
 
 // --- Main screen ---------------------------------------------------------
 export default function AdminNecessaryInfo() {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const { token } = useAuth();
   const [tab, setTab] = useState<TabKey>("menu");
   const [day, setDay] = useState<string>("monday");
@@ -625,61 +627,61 @@ export default function AdminNecessaryInfo() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 32 },
   header: { marginBottom: spacing.md },
   eyebrow: {
     ...typography.caption,
-    color: colors.primary,
+    color: c.primary,
     letterSpacing: 1.5,
     fontWeight: "700",
     marginBottom: 6,
   },
-  title: { ...typography.title1, color: colors.textPrimary },
-  subtitle: { ...typography.subhead, color: colors.textSecondary, marginTop: 4 },
+  title: { ...typography.title1, color: c.textPrimary },
+  subtitle: { ...typography.subhead, color: c.textSecondary, marginTop: 4 },
 
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.xl,
     padding: spacing.md,
     marginBottom: spacing.md,
     ...shadow.card,
   },
-  cardTitle: { ...typography.title2, color: colors.textPrimary, marginBottom: 8 },
+  cardTitle: { ...typography.title2, color: c.textPrimary, marginBottom: 8 },
   subLabel: {
     ...typography.footnote,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     marginTop: 8,
     marginBottom: 6,
   },
   input: {
-    backgroundColor: colors.inputBg,
+    backgroundColor: c.inputBg,
     borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    color: colors.textPrimary,
+    color: c.textPrimary,
   },
 
   dayChip: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    backgroundColor: colors.inputBg,
+    backgroundColor: c.inputBg,
     borderRadius: 999,
     marginRight: 6,
   },
-  dayChipText: { ...typography.caption, color: colors.textPrimary, fontWeight: "700" },
+  dayChipText: { ...typography.caption, color: c.textPrimary, fontWeight: "700" },
 
   unitChip: {
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: colors.inputBg,
+    backgroundColor: c.inputBg,
     borderRadius: 8,
     marginRight: 4,
   },
-  unitChipText: { ...typography.caption, color: colors.textPrimary, fontWeight: "600" },
+  unitChipText: { ...typography.caption, color: c.textPrimary, fontWeight: "600" },
 
   addNiBtn: {
     flexDirection: "row",
@@ -687,14 +689,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     paddingVertical: 14,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
     borderRadius: radius.md,
     marginBottom: spacing.md,
   },
-  addNiText: { ...typography.headline, color: colors.primary, fontWeight: "700" },
+  addNiText: { ...typography.headline, color: c.primary, fontWeight: "700" },
 
   itemListRow: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: 8,
@@ -702,9 +704,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     ...shadow.card,
   },
-  itemRowName: { ...typography.headline, color: colors.textPrimary },
-  itemRowSub: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-  muted: { ...typography.subhead, color: colors.textSecondary, textAlign: "center" },
+  itemRowName: { ...typography.headline, color: c.textPrimary },
+  itemRowSub: { ...typography.caption, color: c.textSecondary, marginTop: 2 },
+  muted: { ...typography.subhead, color: c.textSecondary, textAlign: "center" },
 
   deleteRow: {
     flexDirection: "row",
@@ -714,5 +716,5 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginTop: 6,
   },
-  deleteText: { ...typography.subhead, color: colors.danger, fontWeight: "600" },
+  deleteText: { ...typography.subhead, color: c.danger, fontWeight: "600" },
 });

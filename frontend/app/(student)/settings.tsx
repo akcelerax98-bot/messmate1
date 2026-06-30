@@ -1,7 +1,7 @@
 // Student Settings — profile + account/app placeholders + logout.
 
 import { Feather } from "@expo/vector-icons";
-import React from "react";
+import React, { useMemo } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -9,7 +9,7 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { Button } from "@/src/components/Button";
 import { NotifBell } from "@/src/components/NotifBell";
 import { ThemeToggle } from "@/src/components/ThemeToggle";
-import { colors, radius, shadow, spacing, typography } from "@/src/theme";
+import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 type Row = {
   icon: keyof typeof Feather.glyphMap;
@@ -47,6 +47,8 @@ function SettingsRow({ icon, label, value, testID, onPress, disabledNote }: Row)
 }
 
 export default function StudentSettings() {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const { user, logout } = useAuth();
 
   return (
@@ -161,8 +163,8 @@ export default function StudentSettings() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 24 },
   header: { marginBottom: spacing.md },
   headerRow: {
@@ -173,15 +175,15 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     ...typography.caption,
-    color: colors.primary,
+    color: c.primary,
     letterSpacing: 1.5,
     fontWeight: "700",
     marginBottom: 6,
   },
-  title: { ...typography.title1, color: colors.textPrimary },
+  title: { ...typography.title1, color: c.textPrimary },
 
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.xl,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -195,30 +197,30 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: colors.primary,
+    backgroundColor: c.primary,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: spacing.md,
   },
   avatarLetter: { color: "#fff", fontSize: 30, fontWeight: "700" },
-  profileName: { ...typography.title2, color: colors.textPrimary },
-  profileSub: { ...typography.subhead, color: colors.textSecondary, marginTop: 4 },
+  profileName: { ...typography.title2, color: c.textPrimary },
+  profileSub: { ...typography.subhead, color: c.textSecondary, marginTop: 4 },
   roomBadge: {
     marginTop: 10,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
   },
   roomBadgeText: {
     ...typography.caption,
-    color: colors.primaryDark,
+    color: c.primaryDark,
     fontWeight: "700",
   },
 
   sectionLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 1,
     marginLeft: 6,
@@ -236,18 +238,18 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  rowLabel: { ...typography.subhead, color: colors.textPrimary, fontWeight: "600" },
-  rowValue: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-  rowMuted: { ...typography.caption, color: colors.textTertiary, marginTop: 2 },
-  divider: { height: 1, backgroundColor: colors.border, marginLeft: 48 },
+  rowLabel: { ...typography.subhead, color: c.textPrimary, fontWeight: "600" },
+  rowValue: { ...typography.caption, color: c.textSecondary, marginTop: 2 },
+  rowMuted: { ...typography.caption, color: c.textTertiary, marginTop: 2 },
+  divider: { height: 1, backgroundColor: c.border, marginLeft: 48 },
 
   versionText: {
     ...typography.caption,
-    color: colors.textTertiary,
+    color: c.textTertiary,
     textAlign: "center",
     marginTop: spacing.lg,
   },

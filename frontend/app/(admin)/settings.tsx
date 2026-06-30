@@ -1,7 +1,7 @@
 // Admin Tab 5 — Settings (profile + defaults + logout)
 
 import { Feather } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useMemo, useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -20,9 +20,11 @@ import { NotifBell } from "@/src/components/NotifBell";
 import { Segmented } from "@/src/components/Segmented";
 import { ThemeToggle } from "@/src/components/ThemeToggle";
 import { Toast } from "@/src/components/Toast";
-import { colors, radius, shadow, spacing, typography } from "@/src/theme";
+import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 export default function AdminSettings() {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const { user, token, logout } = useAuth();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -203,8 +205,8 @@ export default function AdminSettings() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 32 },
   header: { marginBottom: spacing.md },
@@ -216,14 +218,14 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     ...typography.caption,
-    color: colors.primary,
+    color: c.primary,
     letterSpacing: 1.5,
     fontWeight: "700",
     marginBottom: 6,
   },
-  title: { ...typography.title1, color: colors.textPrimary },
+  title: { ...typography.title1, color: c.textPrimary },
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.xl,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -234,48 +236,48 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: colors.primary,
+    backgroundColor: c.primary,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: spacing.md,
   },
   avatarLetter: { color: "#fff", fontSize: 30, fontWeight: "700" },
-  profileName: { ...typography.title2, color: colors.textPrimary },
-  profileSub: { ...typography.subhead, color: colors.textSecondary, marginTop: 4 },
+  profileName: { ...typography.title2, color: c.textPrimary },
+  profileSub: { ...typography.subhead, color: c.textSecondary, marginTop: 4 },
   adminBadge: {
     marginTop: 10,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
   },
-  adminBadgeText: { ...typography.caption, color: colors.primaryDark, fontWeight: "700" },
+  adminBadgeText: { ...typography.caption, color: c.primaryDark, fontWeight: "700" },
 
   sectionLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 1,
     marginLeft: 4,
     marginBottom: 8,
     marginTop: 4,
   },
-  rowLabel: { ...typography.headline, color: colors.textPrimary },
-  rowHelp: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  rowLabel: { ...typography.headline, color: c.textPrimary },
+  rowHelp: { ...typography.caption, color: c.textSecondary, marginTop: 2 },
   switchRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   row: { flexDirection: "row", alignItems: "center", paddingVertical: 4, gap: 12 },
   rowIcon: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  divider: { height: 1, backgroundColor: colors.border, marginVertical: 12 },
+  divider: { height: 1, backgroundColor: c.border, marginVertical: 12 },
   versionText: {
     ...typography.caption,
-    color: colors.textTertiary,
+    color: c.textTertiary,
     textAlign: "center",
     marginTop: spacing.lg,
   },

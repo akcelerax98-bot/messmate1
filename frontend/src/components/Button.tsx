@@ -1,6 +1,6 @@
-// Shared button — Apple-style filled CTA.
+// Shared button — Apple-style filled CTA. Theme-reactive.
 
-import React from "react";
+import React, { useMemo } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -9,9 +9,9 @@ import {
   ViewStyle,
 } from "react-native";
 
-import { colors, radius, typography } from "@/src/theme";
+import { radius, typography, useTheme, type ThemeColors } from "@/src/theme";
 
-type Variant = "primary" | "secondary" | "ghost";
+type Variant = "primary" | "secondary" | "ghost" | "danger";
 
 export function Button({
   label,
@@ -30,13 +30,17 @@ export function Button({
   style?: ViewStyle;
   testID?: string;
 }) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const isDisabled = disabled || loading;
   const palette =
     variant === "primary"
-      ? { bg: colors.primary, text: colors.textInverse }
+      ? { bg: c.primary, text: c.textInverse }
       : variant === "secondary"
-        ? { bg: colors.primaryLight, text: colors.primary }
-        : { bg: "transparent", text: colors.primary };
+        ? { bg: c.primaryLight, text: c.primary }
+        : variant === "danger"
+          ? { bg: c.danger, text: "#fff" }
+          : { bg: "transparent", text: c.primary };
 
   return (
     <TouchableOpacity
@@ -59,13 +63,14 @@ export function Button({
   );
 }
 
-const styles = StyleSheet.create({
-  btn: {
-    height: 56,
-    borderRadius: radius.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
-  label: { ...typography.headline },
-});
+const makeStyles = (_c: ThemeColors) =>
+  StyleSheet.create({
+    btn: {
+      height: 54,
+      borderRadius: radius.lg,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 20,
+    },
+    label: { ...typography.headline },
+  });

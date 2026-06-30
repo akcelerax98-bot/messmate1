@@ -25,7 +25,7 @@ import { Chip } from "@/src/components/Chip";
 import { NotifBell } from "@/src/components/NotifBell";
 import { Toast } from "@/src/components/Toast";
 import { ToggleOnOff } from "@/src/components/ToggleOnOff";
-import { colors, radius, shadow, spacing, typography } from "@/src/theme";
+import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 const DEFAULT_PLAN: MealPlan = {
   status: null,
@@ -55,6 +55,8 @@ const MEAL_ICONS: Record<MealType, keyof typeof Feather.glyphMap> = {
 type ToastState = { message: string; variant: "success" | "error" | "info" } | null;
 
 export default function StudentHome() {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const { token, user } = useAuth();
   const [data, setData] = useState<TodayResponse | null>(null);
   const [reasons, setReasons] = useState<string[]>([]);
@@ -456,8 +458,8 @@ export default function StudentHome() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 24 },
 
@@ -465,16 +467,16 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "flex-start" },
   eyebrow: {
     ...typography.caption,
-    color: colors.primary,
+    color: c.primary,
     letterSpacing: 1.5,
     fontWeight: "700",
     marginBottom: 6,
   },
-  greeting: { ...typography.title1, color: colors.textPrimary },
-  dateLine: { ...typography.subhead, color: colors.textSecondary, marginTop: 4 },
+  greeting: { ...typography.title1, color: c.textPrimary },
+  dateLine: { ...typography.subhead, color: c.textSecondary, marginTop: 4 },
 
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.xl,
     padding: spacing.md + 4,
     marginBottom: spacing.md,
@@ -484,10 +486,10 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   summaryLabel: {
     ...typography.footnote,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     width: 70,
   },
-  summaryValue: { ...typography.subhead, color: colors.textPrimary, flex: 1 },
+  summaryValue: { ...typography.subhead, color: c.textPrimary, flex: 1 },
 
   cardHead: {
     flexDirection: "row",
@@ -500,41 +502,41 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  cardTitle: { ...typography.title2, color: colors.textPrimary, flexShrink: 1 },
+  cardTitle: { ...typography.title2, color: c.textPrimary, flexShrink: 1 },
 
   sectionLabel: {
     ...typography.footnote,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     marginBottom: 8,
   },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   emptyText: {
     ...typography.subhead,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     paddingVertical: 8,
   },
 
   otherInput: {
     marginTop: 10,
-    backgroundColor: colors.inputBg,
+    backgroundColor: c.inputBg,
     borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    color: colors.textPrimary,
+    color: c.textPrimary,
   },
 
-  feedbackHint: { ...typography.caption, color: colors.textSecondary, marginBottom: 10 },
+  feedbackHint: { ...typography.caption, color: c.textSecondary, marginBottom: 10 },
   feedbackInput: {
-    backgroundColor: colors.inputBg,
+    backgroundColor: c.inputBg,
     borderRadius: radius.md,
     padding: 14,
     minHeight: 96,
-    color: colors.textPrimary,
+    color: c.textPrimary,
     fontSize: 15,
     textAlignVertical: "top",
   },

@@ -1,10 +1,10 @@
-// Lightweight toast — slides down from top, auto-dismisses.
+// Lightweight toast — slides down from top, auto-dismisses. Theme-reactive.
 
 import React, { useEffect, useRef } from "react";
 import { Animated, StyleSheet, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { colors, radius, typography } from "@/src/theme";
+import { radius, typography, useTheme } from "@/src/theme";
 
 type Props = {
   message: string | null;
@@ -14,6 +14,7 @@ type Props = {
 };
 
 export function Toast({ message, variant = "success", onHide, testID }: Props) {
+  const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(-20)).current;
@@ -27,16 +28,8 @@ export function Toast({ message, variant = "success", onHide, testID }: Props) {
 
     const timer = setTimeout(() => {
       Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: -20,
-          duration: 200,
-          useNativeDriver: true,
-        }),
+        Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: -20, duration: 200, useNativeDriver: true }),
       ]).start(() => onHide());
     }, 2200);
 
@@ -45,12 +38,8 @@ export function Toast({ message, variant = "success", onHide, testID }: Props) {
 
   if (!message) return null;
 
-  const bg =
-    variant === "error"
-      ? colors.danger
-      : variant === "info"
-        ? colors.textPrimary
-        : colors.primary;
+  const bg = variant === "error" ? c.danger : variant === "info" ? c.textPrimary : c.primary;
+  const textColor = variant === "info" ? c.textInverse : "#fff";
 
   return (
     <Animated.View
@@ -66,7 +55,7 @@ export function Toast({ message, variant = "success", onHide, testID }: Props) {
         },
       ]}
     >
-      <Text style={styles.text}>{message}</Text>
+      <Text style={[styles.text, { color: textColor }]}>{message}</Text>
     </Animated.View>
   );
 }
@@ -86,5 +75,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
   },
-  text: { ...typography.subhead, color: "#fff", textAlign: "center", fontWeight: "600" },
+  text: { ...typography.subhead, textAlign: "center", fontWeight: "600" },
 });

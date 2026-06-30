@@ -1,7 +1,7 @@
 // Admin Tab 2 — Dashboard (suggested cook quantity per meal item)
 
 import { Feather } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useMemo, useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -16,7 +16,7 @@ import { api, type DashboardMeal, type DashboardResponse, type MealType } from "
 import { useAuth } from "@/src/auth/AuthContext";
 import { StatTile } from "@/src/components/StatTile";
 import { Toast } from "@/src/components/Toast";
-import { colors, radius, shadow, spacing, typography } from "@/src/theme";
+import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 const ICON: Record<MealType, keyof typeof Feather.glyphMap> = {
   breakfast: "coffee",
@@ -85,6 +85,8 @@ function MealBlock({ meal, data }: { meal: MealType; data: DashboardMeal }) {
 }
 
 export default function AdminDashboard() {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const { token } = useAuth();
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -211,24 +213,24 @@ export default function AdminDashboard() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 32 },
   header: { marginBottom: spacing.md },
   eyebrow: {
     ...typography.caption,
-    color: colors.primary,
+    color: c.primary,
     letterSpacing: 1.5,
     fontWeight: "700",
     marginBottom: 6,
   },
-  title: { ...typography.title1, color: colors.textPrimary },
-  subtitle: { ...typography.subhead, color: colors.textSecondary, marginTop: 4 },
+  title: { ...typography.title1, color: c.textPrimary },
+  subtitle: { ...typography.subhead, color: c.textSecondary, marginTop: 4 },
   tilesGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: spacing.md },
 
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.xl,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -236,8 +238,8 @@ const styles = StyleSheet.create({
   },
   highlightCard: { gap: 6, paddingVertical: 14 },
   highlightRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  highlightText: { ...typography.subhead, color: colors.textSecondary },
-  bold: { color: colors.textPrimary, fontWeight: "700" },
+  highlightText: { ...typography.subhead, color: c.textSecondary },
+  bold: { color: c.textPrimary, fontWeight: "700" },
 
   titleRow: {
     flexDirection: "row",
@@ -249,15 +251,15 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  cardTitle: { ...typography.title2, color: colors.textPrimary },
+  cardTitle: { ...typography.title2, color: c.textPrimary },
   eatPill: {
     ...typography.caption,
-    backgroundColor: colors.primaryLight,
-    color: colors.primary,
+    backgroundColor: c.primaryLight,
+    color: c.primary,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
@@ -279,13 +281,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: c.border,
   },
-  itemName: { ...typography.headline, color: colors.textPrimary },
-  itemSub: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  itemName: { ...typography.headline, color: c.textPrimary },
+  itemSub: { ...typography.caption, color: c.textSecondary, marginTop: 2 },
   itemSuggestBox: { alignItems: "flex-end" },
-  itemSuggestNum: { ...typography.title2, color: colors.primary, fontSize: 20 },
-  itemSuggestUnit: { ...typography.caption, color: colors.textSecondary, marginTop: -2 },
-  itemMissing: { ...typography.caption, color: colors.warning, fontStyle: "italic" },
-  muted: { ...typography.subhead, color: colors.textSecondary, textAlign: "center", paddingVertical: 8 },
+  itemSuggestNum: { ...typography.title2, color: c.primary, fontSize: 20 },
+  itemSuggestUnit: { ...typography.caption, color: c.textSecondary, marginTop: -2 },
+  itemMissing: { ...typography.caption, color: c.warning, fontStyle: "italic" },
+  muted: { ...typography.subhead, color: c.textSecondary, textAlign: "center", paddingVertical: 8 },
 });

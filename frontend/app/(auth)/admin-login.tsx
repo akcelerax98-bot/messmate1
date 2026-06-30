@@ -1,8 +1,8 @@
-// Admin login
+// Admin login — Theme-reactive. No demo hints (production).
 
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,14 +15,14 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { api } from "@/src/api/client";
-import { useAuth } from "@/src/auth/AuthContext";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
-import { colors, spacing, typography } from "@/src/theme";
+import { spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 export default function AdminLogin() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [institution, setInstitution] = useState("");
   const [userId, setUserId] = useState("");
   const [password, setPassword] = useState("");
@@ -50,7 +50,9 @@ export default function AdminLogin() {
         pathname: "/(auth)/otp",
         params: {
           challenge: res.challenge,
-          mock_otp: res.mock_otp,
+          delivery: res.delivery,
+          dev_otp: res.dev_otp || "",
+          masked_mobile: res.masked_mobile,
           full_name: res.user_preview.full_name,
         },
       });
@@ -77,33 +79,29 @@ export default function AdminLogin() {
             style={styles.back}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Feather name="chevron-left" size={26} color={colors.textPrimary} />
+            <Feather name="chevron-left" size={26} color={c.textPrimary} />
           </TouchableOpacity>
 
           <View style={styles.iconBubble}>
-            <Feather name="shield" size={22} color={colors.primary} />
+            <Feather name="shield" size={22} color={c.primary} />
           </View>
 
-          <Text style={styles.title} testID="admin-login-title">
-            Admin sign in
-          </Text>
-          <Text style={styles.subtitle}>
-            Mess manager, warden, or whoever plans meals.
-          </Text>
+          <Text style={styles.title} testID="admin-login-title">Admin sign in</Text>
+          <Text style={styles.subtitle}>Mess manager, warden, or whoever plans meals.</Text>
 
           <View style={{ marginTop: spacing.xl }}>
             <Input
               testID="admin-hostel-input"
               label="Institution / Hostel name"
-              placeholder="e.g., Demo Hostel"
+              placeholder="e.g., Sunrise Hostel"
               value={institution}
               onChangeText={setInstitution}
               autoCapitalize="words"
             />
             <Input
               testID="admin-userid-input"
-              label="Admin User ID or Mobile"
-              placeholder="e.g., admin"
+              label="Admin Mobile or User ID"
+              placeholder="e.g., 9876543210"
               value={userId}
               onChangeText={setUserId}
               autoCapitalize="none"
@@ -118,9 +116,7 @@ export default function AdminLogin() {
             />
 
             {error ? (
-              <Text style={styles.error} testID="admin-login-error">
-                {error}
-              </Text>
+              <Text style={styles.error} testID="admin-login-error">{error}</Text>
             ) : null}
 
             <Button
@@ -130,23 +126,6 @@ export default function AdminLogin() {
               loading={loading}
               style={{ marginTop: spacing.md }}
             />
-
-            <TouchableOpacity
-              testID="admin-forgot-password-link"
-              onPress={() =>
-                setError("Forgot password is not available yet for admin.")
-              }
-              style={styles.linkRow}
-            >
-              <Text style={styles.linkSubtle}>Forgot password?</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.demoBox} testID="admin-demo-hint">
-            <Text style={styles.demoTitle}>Demo admin</Text>
-            <Text style={styles.demoLine}>Institution: Demo Hostel</Text>
-            <Text style={styles.demoLine}>User ID: admin</Text>
-            <Text style={styles.demoLine}>Password: admin123</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -154,40 +133,26 @@ export default function AdminLogin() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
-  container: { padding: spacing.lg, paddingBottom: spacing.xl },
-  back: { width: 36, height: 36, justifyContent: "center", marginBottom: spacing.md },
-  iconBubble: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primaryLight,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.md,
-  },
-  title: { ...typography.largeTitle, color: colors.textPrimary, marginBottom: 6 },
-  subtitle: { ...typography.callout, color: colors.textSecondary },
-  error: {
-    color: colors.danger,
-    ...typography.subhead,
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  linkRow: { alignItems: "center", marginTop: spacing.md },
-  linkSubtle: { ...typography.subhead, color: colors.textSecondary },
-  demoBox: {
-    marginTop: spacing.xl,
-    backgroundColor: colors.primaryLight,
-    borderRadius: 16,
-    padding: spacing.md,
-  },
-  demoTitle: {
-    ...typography.footnote,
-    color: colors.primaryDark,
-    marginBottom: 6,
-    fontWeight: "700",
-  },
-  demoLine: { ...typography.caption, color: colors.primaryDark, marginTop: 2 },
-});
+const makeStyles = (c: ThemeColors) =>
+  StyleSheet.create({
+    safe: { flex: 1, backgroundColor: c.bg },
+    container: { padding: spacing.lg, paddingBottom: spacing.xl },
+    back: { width: 36, height: 36, justifyContent: "center", marginBottom: spacing.md },
+    iconBubble: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: c.primaryLight,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: spacing.md,
+    },
+    title: { ...typography.largeTitle, color: c.textPrimary, marginBottom: 6 },
+    subtitle: { ...typography.callout, color: c.textSecondary },
+    error: {
+      color: c.danger,
+      ...typography.subhead,
+      marginTop: 4,
+      marginBottom: 4,
+    },
+  });

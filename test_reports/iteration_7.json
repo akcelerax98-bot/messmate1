@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 7 backend testing complete — 24/24 pytest passing in /app/backend/tests/test_iteration7.py. Verified: (1) DB is empty on startup (0 docs in users/menus/necessary_info/wastage_records — no Demo Hostel seed). (2) Startup creates indexes on otp_attempts (id unique, expires_at) and push_tokens (user_id+device_token unique, hostel+role). (3) POST /api/auth/register-student → 201 with approval_status='pending'; duplicate within hostel → 400. (4) POST /api/auth/login in dev mode returns {challenge, delivery:'dev', dev_otp:'123456', masked_mobile, user_preview} after validating credentials; wrong password → 401. (5) POST /api/auth/verify-login-otp with dev_otp → 200 access_token+user; wrong OTP → 400 'Invalid OTP'; reuse of consumed OTP → 400 'already used'; brute-force: 5 wrong attempts return 400 each (incrementing counter), 6th returns 429 'Too many incorrect attempts'. (6) POST /api/auth/resend-otp returns fresh dev_otp + resets attempts counter (verified by successfully verifying after a prior wrong attempt). (7) POST /api/auth/push-token persists to users.push_token AND upserts push_tokens collection. (8) POST /api/register-push returns 201 {status:'registered'} even when EMERGENT_PUSH_KEY is placeholder (relay 401 is caught and logged, non-blocking); user_id mismatch → 403; push_tokens collection updated. (9) POST /api/admin/notifications → 201 (push failure non-blocking). (10) POST /api/admin/notifications/dispatch-reminder audience='student' uses default title 'Submit your meal preferences'; audience='admin' uses 'Review today's plan'; recipients count returned. (11) POST /api/admin/notifications/menu-reminder still works (creates type=menu_reminder doc). (12) Regression: /admin/dashboard, /admin/students, /admin/wastage/today, /student/today, /student/menu/week, /student/notifications all return 200 with expected schemas. Test data cleaned up post-run. No frontend testing was requested.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration7.py",
+    "/app/test_reports/pytest/iteration_7.xml"
+  ],
+  "action_items": [
+    "All review-request items pass. No code changes required.",
+    "(Pre-existing) Legacy tests /app/backend/tests/test_auth.py and test_student.py still use the old single-step login shape and will fail if re-run — already documented in iteration_6.json. Consider migrating or deleting them."
+  ],
+  "critical_code_review_comments": [
+    "server.py:551 — login validates credentials BEFORE issuing challenge/OTP (good — prevents OTP enumeration via password guessing).",
+    "server.py:568-580 — otp_attempts doc stores bcrypt-hashed OTP (not plaintext) with delivery, attempts counter, expires_at, and verified flag — clean design.",
+    "server.py:622-624 — verify-login-otp returns 429 BEFORE incrementing attempts again (no off-by-one) — correct.",
+    "server.py:641-642 — increment-on-fail is atomic ($inc). Good.",
+    "server.py:493-499 — send_push catches httpx errors AND treats 401/5xx as logged warnings, never re-raises — push relay failures truly non-blocking.",
+    "server.py:753-758 — register_push relay wrapped in try/except; 401 logged; endpoint always returns {status:'registered'} — matches spec.",
+    "server.py:686-690 — resend-otp resets attempts to 0 and updates otp_hash atomically. Correct.",
+    "server.py:1684-1690 — startup creates indexes on otp_attempts(id unique, expires_at) and push_tokens(user_id+device_token unique, hostel+role) idempotently. Verified live.",
+    "server.py:632-640 — if delivery=='sms', verify-login-otp also calls MSG91 verify but tolerates the 'already-consumed' false-negative (logs and continues). Good defence-in-depth.",
+    "Note: server.py file is 1734 lines — exceeds the 700-line guideline. Recommend splitting into routers (auth, students, admin, notifications, wastage) in a future refactor. Not blocking for this iteration."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration7.py — NEW (24 tests, all passing)",
+    "/app/test_reports/pytest/iteration_7.xml — NEW (junit xml)",
+    "/app/test_reports/iteration_7.json — NEW"
+  ],
+  "success_rate": {
+    "backend": "100% (24/24 pytest)",
+    "frontend": "not tested (backend-only review request)"
+  },
+  "seed_data_creation": "None. Tests create their own TEST_-prefixed hostel/users/menus and clean them up after the run. Verified DB is back to 0 docs across all collections post-run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 7 locks: empty-DB startup, dev-mode OTP returning '123456' inline as dev_otp, brute-force lockout at 5 attempts (429 on 6th), resend-otp resets attempts, push-token + register-push gracefully tolerate placeholder EMERGENT_PUSH_KEY, dispatch-reminder student/admin defaults. The dev_otp is ALWAYS '123456' when MSG91 keys are empty (MOCK_OTP constant in server.py). To get an admin in tests: register-student then update users collection directly with role='admin', approval_status='approved' — there is no admin signup API. See test_iteration7._promote_admin_in_db for the canonical helper. EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL) is the frontend env var; tests use it. If MSG91 keys are ever populated in .env, the dev_otp field becomes None and tests in TestLoginDev/TestVerifyOtp/TestResendOtp will need to switch to mocking MSG91.",
+  "rca_of_issue": "N/A — all 24 tests passed first run, no defects found."
+}

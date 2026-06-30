@@ -27,7 +27,7 @@ import { LikeDislikeBar } from "@/src/components/LikeDislikeBar";
 import { Segmented } from "@/src/components/Segmented";
 import { StatTile } from "@/src/components/StatTile";
 import { Toast } from "@/src/components/Toast";
-import { colors, radius, shadow, spacing, typography } from "@/src/theme";
+import { radius, shadow, spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 const MEAL_ICON: Record<MealType, keyof typeof Feather.glyphMap> = {
   breakfast: "coffee",
@@ -40,6 +40,8 @@ function cap(s: string) {
 }
 
 export default function AdminStudentsStatus() {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const { token } = useAuth();
   const [summary, setSummary] = useState<StudentsSummary | null>(null);
   const [pending, setPending] = useState<StudentRow[]>([]);
@@ -409,23 +411,23 @@ export default function AdminStudentsStatus() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl + 32 },
   header: { marginBottom: spacing.md },
   eyebrow: {
     ...typography.caption,
-    color: colors.primary,
+    color: c.primary,
     letterSpacing: 1.5,
     fontWeight: "700",
     marginBottom: 6,
   },
-  title: { ...typography.title1, color: colors.textPrimary },
-  subtitle: { ...typography.subhead, color: colors.textSecondary, marginTop: 4 },
+  title: { ...typography.title1, color: c.textPrimary },
+  subtitle: { ...typography.subhead, color: c.textSecondary, marginTop: 4 },
   sectionLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 1,
     marginTop: spacing.md,
@@ -434,14 +436,14 @@ const styles = StyleSheet.create({
   },
   tilesGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.xl,
     padding: spacing.md,
     marginBottom: spacing.sm,
     ...shadow.card,
   },
   studentCard: {
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: 10,
@@ -452,13 +454,13 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarLetter: { color: colors.primary, fontSize: 18, fontWeight: "700" },
-  studentName: { ...typography.headline, color: colors.textPrimary },
-  studentMeta: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
+  avatarLetter: { color: c.primary, fontSize: 18, fontWeight: "700" },
+  studentName: { ...typography.headline, color: c.textPrimary },
+  studentMeta: { ...typography.caption, color: c.textSecondary, marginTop: 1 },
   actionRow: { flexDirection: "row", gap: 8, marginTop: spacing.sm },
   actBtn: {
     flex: 1,
@@ -476,46 +478,46 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: c.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  cardTitle: { ...typography.title2, color: colors.textPrimary },
+  cardTitle: { ...typography.title2, color: c.textPrimary },
 
   eatRow: { flexDirection: "row", gap: 12 },
   eatBox: {
     flex: 1,
-    backgroundColor: colors.inputBg,
+    backgroundColor: c.inputBg,
     borderRadius: radius.md,
     padding: 12,
     alignItems: "center",
   },
-  eatNum: { ...typography.title1, color: colors.primary, fontSize: 26 },
-  eatLabel: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  eatNum: { ...typography.title1, color: c.primary, fontSize: 26 },
+  eatLabel: { ...typography.caption, color: c.textSecondary, marginTop: 2 },
 
   subLabel: {
     ...typography.footnote,
-    color: colors.textSecondary,
+    color: c.textSecondary,
     marginTop: spacing.md,
     marginBottom: 6,
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-  muted: { ...typography.subhead, color: colors.textSecondary },
+  muted: { ...typography.subhead, color: c.textSecondary },
 
   barRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 6 },
-  barName: { ...typography.subhead, color: colors.textPrimary, width: 100 },
+  barName: { ...typography.subhead, color: c.textPrimary, width: 100 },
   barTrack: {
     flex: 1,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.inputBg,
+    backgroundColor: c.inputBg,
     overflow: "hidden",
   },
-  barFill: { height: "100%", backgroundColor: colors.primary, borderRadius: 4 },
+  barFill: { height: "100%", backgroundColor: c.primary, borderRadius: 4 },
   barCount: {
     ...typography.subhead,
-    color: colors.textPrimary,
+    color: c.textPrimary,
     fontWeight: "700",
     width: 40,
     textAlign: "right",
@@ -523,11 +525,11 @@ const styles = StyleSheet.create({
 
   kvList: { gap: 6 },
   kvRow: { flexDirection: "row", justifyContent: "space-between" },
-  kvKey: { ...typography.subhead, color: colors.textSecondary },
-  kvValue: { ...typography.subhead, color: colors.textPrimary, fontWeight: "700" },
+  kvKey: { ...typography.subhead, color: c.textSecondary },
+  kvValue: { ...typography.subhead, color: c.textPrimary, fontWeight: "700" },
 
-  divider: { height: 1, backgroundColor: colors.border, marginVertical: 8 },
+  divider: { height: 1, backgroundColor: c.border, marginVertical: 8 },
   fbRow: { flexDirection: "row", gap: 8, paddingVertical: 6 },
-  fbText: { ...typography.subhead, color: colors.textPrimary, lineHeight: 20 },
-  fbMeta: { ...typography.caption, color: colors.textTertiary, marginTop: 2 },
+  fbText: { ...typography.subhead, color: c.textPrimary, lineHeight: 20 },
+  fbMeta: { ...typography.caption, color: c.textTertiary, marginTop: 2 },
 });

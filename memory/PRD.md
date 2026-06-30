@@ -16,28 +16,32 @@ MessMate is a food-waste reduction and meal-planning app for hostel/college/PG m
 - **Frontend:** Expo Router + react-native-safe-area-context + @expo/vector-icons
 - **Theme:** Light + Dark + System, Apple-style premium, green sustainability accent (#22C55E), floating glass tab bar
 
-## Authentication (2-step)
-1. `POST /api/auth/login` with `{mobile, password, institution_or_hostel_name}` → returns `challenge + mock_otp + user_preview`.
-2. `POST /api/auth/verify-login-otp` with `{challenge, otp}` → returns access_token.
-- OTP is MOCKED at `123456`. Real SMS (Twilio / MSG91) will be wired before publish.
-- Push notification token capture is implemented; dispatch is MOCKED — needs deploy + google-services.json.
+## Authentication (2-step, real SMS)
+1. `POST /api/auth/login` → `{challenge, delivery, dev_otp?, masked_mobile, user_preview}`.
+2. `POST /api/auth/verify-login-otp` → access token.
+3. `POST /api/auth/resend-otp` → new OTP.
+- **Production:** MSG91 SMS OTP. Configure `MSG91_AUTH_KEY` + `MSG91_TEMPLATE_ID` in `/app/backend/.env`.
+- **Dev:** If keys are missing or `OTP_DEV_MODE=true`, the OTP `123456` is returned inline as `dev_otp`.
+- Push notifications via Emergent relay. Tokens registered on every login. Reminders fire automatically when an admin creates an announcement or dispatches a reminder.
 
 ## Multi-tenant (hostel scoping)
-Every domain doc (`menus`, `daily_plans`, `menu_reactions`, `feedback`, `wastage_records`, `necessary_info`, `app_settings`, `notifications`) carries `hostel: <institution_or_hostel_name>`. Indexes are unique per `(hostel, ...)`. Admin queries and student reads are scoped by the JWT user's hostel. Verified by 23-test isolation suite (iteration 6).
+Every domain doc (`menus`, `daily_plans`, `menu_reactions`, `feedback`, `wastage_records`, `necessary_info`, `app_settings`, `notifications`, `push_tokens`, `otp_attempts`) carries `hostel: <institution_or_hostel_name>`. Indexes are unique per `(hostel, ...)`. Admin queries and student reads are scoped by the JWT user's hostel.
 
 ## Data Model summary
-- **users** — id, full_name, mobile_or_user_id, institution_or_hostel_name (uniq pair with mobile), room_number, password_hash, push_token, role, approval_status, timestamps
+- **users** — id, full_name, mobile_or_user_id, institution_or_hostel_name (uniq pair with mobile), room_number, password_hash, push_token, push_platform, role, approval_status, timestamps
+- **otp_attempts** — id (=challenge cid), user_id, mobile, otp_hash, delivery, attempts, verified, expires_at
+- **push_tokens** — `(user_id, device_token)` unique; platform, hostel, role
 - **menus** — `(hostel, day)` unique; B/L/D items + custom_question per slot
 - **daily_plans** — `(student_id, date)` unique; hostel; per-meal status/items/reason/custom_answer
 - **menu_reactions** — `(student_id, day, meal_type)` unique; hostel; like/dislike/no_response
 - **feedback** — anonymous; admin projection excludes student_id
 - **wastage_records** — `(hostel, date)` unique; per-meal item arrays + aggregate kg + per-meal loss + item_loss_total + **manual_total_cost** + total_loss
 - **necessary_info** — `(hostel, item_name, meal_type)` unique; qty/person + price/unit
-- **app_settings** — `hostel` unique; defaults
+- **app_settings** — `hostel` unique; defaults + `reminder_times: ["07:00","11:30","18:00"]`
 - **notifications** — hostel; title/body/type/audience/recipient_id/scheduled_for/read_by
 
 ## Notifications
-- Admin can send (a) custom announcements to all students of the hostel, (b) tomorrow's menu reminder (auto-generated from the next-day weekday menu).
+- Admin can send: (a) custom announcements to students, (b) tomorrow's menu reminder, (c) role-specific reminders via `POST /api/admin/notifications/dispatch-reminder` (audience = student | admin | all).
 - Students see in-app feed (modal route `/notifications`) with bell in home + settings; unread badge auto-refreshes every 30s.
 - Real push dispatch deferred to post-deploy (token already captured server-side).
 

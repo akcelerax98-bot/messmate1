@@ -1,9 +1,9 @@
-// Multi-select / single-select chip used for preferences, reactions, and options.
+// Multi-select / single-select chip — theme-reactive.
 
-import React from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, Text, TouchableOpacity, ViewStyle } from "react-native";
 
-import { colors, radius, typography } from "@/src/theme";
+import { radius, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 type Props = {
   label: string;
@@ -15,14 +15,14 @@ type Props = {
 };
 
 export function Chip({ label, selected, onPress, testID, variant = "default", style }: Props) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const bg = selected
-    ? variant === "danger"
-      ? colors.danger
-      : variant === "success"
-        ? colors.success
-        : colors.primary
-    : colors.inputBg;
-  const text = selected ? colors.textInverse : colors.textPrimary;
+    ? variant === "danger" ? c.danger
+    : variant === "success" ? c.success
+    : c.primary
+    : c.inputBg;
+  const text = selected ? c.textInverse : c.textPrimary;
 
   return (
     <TouchableOpacity
@@ -38,14 +38,15 @@ export function Chip({ label, selected, onPress, testID, variant = "default", st
   );
 }
 
-const styles = StyleSheet.create({
-  chip: {
-    height: 36,
-    paddingHorizontal: 16,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  label: { ...typography.subhead, fontWeight: "600" },
-});
+const makeStyles = (_c: ThemeColors) =>
+  StyleSheet.create({
+    chip: {
+      height: 36,
+      paddingHorizontal: 16,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
+    },
+    label: { ...typography.subhead, fontWeight: "600" },
+  });

@@ -1,4 +1,11 @@
-// Theme system with light + dark + system mode
+// Theme system with light + dark + system mode — globally reactive.
+//
+// All UI screens that need theming should call `useTheme()` and read `c.<key>`.
+// Some legacy files import the static `colors` export — that export is a
+// live proxy that reads from a module-scope mutable palette so dynamic values
+// flow through even though `StyleSheet.create()` only runs once. (Layouts that
+// hardcoded `colors.xxx` in a frozen StyleSheet should override the colored
+// properties inline with `c.xxx` at render time.)
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Appearance } from "react-native";
@@ -11,66 +18,74 @@ export type ThemeMode = "light" | "dark" | "system";
 
 const LIGHT = {
   mode: "light" as const,
-  bg: "#F7F8FA",
+  bg: "#F6F7FB",
   bg2: "#FFFFFF",
   card: "#FFFFFF",
   cardGlass: "rgba(255,255,255,0.85)",
   inputBg: "#F2F2F7",
   overlay: "rgba(0,0,0,0.40)",
-  textPrimary: "#111827",
-  textSecondary: "#6B7280",
+  textPrimary: "#0B1220",
+  textSecondary: "#5B6675",
   textTertiary: "#9CA3AF",
   textInverse: "#FFFFFF",
   primary: "#22C55E",
   primaryDark: "#15803D",
   primaryLight: "#EAFBF0",
   primaryTint: "rgba(34,197,94,0.12)",
+  pending: "#F59E0B",
   success: "#16A34A",
   warning: "#F59E0B",
   danger: "#EF4444",
   info: "#3B82F6",
   border: "rgba(0,0,0,0.06)",
   divider: "#E5E7EB",
-  tabBarBg: "rgba(255,255,255,0.78)",
+  tabBarBg: "rgba(255,255,255,0.65)",
   tabBarBorder: "rgba(0,0,0,0.06)",
+  tabBarBlurTint: "light" as "light" | "dark" | "default",
+  tabBarActivePill: "rgba(34,197,94,0.14)",
   badgePendingBg: "#FFFBEB",
   badgePendingText: "#F59E0B",
   badgeApprovedBg: "#EAFBF0",
   badgeApprovedText: "#15803D",
   badgeBlockedBg: "#FEF2F2",
   badgeBlockedText: "#EF4444",
+  shimmer: "rgba(0,0,0,0.06)",
 };
 
-const DARK = {
-  mode: "dark" as const,
-  bg: "#0B0F0D",
-  bg2: "#111827",
-  card: "#1E293B",
-  cardGlass: "rgba(30,41,59,0.72)",
-  inputBg: "#1F2937",
+const DARK: typeof LIGHT = {
+  mode: "dark" as any,
+  bg: "#0A0F14",
+  bg2: "#0F1622",
+  card: "#141B27",
+  cardGlass: "rgba(20,27,39,0.72)",
+  inputBg: "#1C2433",
   overlay: "rgba(0,0,0,0.65)",
-  textPrimary: "#F9FAFB",
-  textSecondary: "#9CA3AF",
+  textPrimary: "#F4F6FB",
+  textSecondary: "#A3ADBC",
   textTertiary: "#6B7280",
-  textInverse: "#0B0F0D",
-  primary: "#22C55E",
+  textInverse: "#0A0F14",
+  primary: "#34D17A",
   primaryDark: "#16A34A",
-  primaryLight: "#14532D",
-  primaryTint: "rgba(34,197,94,0.20)",
+  primaryLight: "rgba(52,209,122,0.18)",
+  primaryTint: "rgba(52,209,122,0.20)",
+  pending: "#FBBF24",
   success: "#22C55E",
   warning: "#FBBF24",
   danger: "#F87171",
   info: "#60A5FA",
-  border: "rgba(255,255,255,0.10)",
-  divider: "rgba(255,255,255,0.08)",
-  tabBarBg: "rgba(17,24,39,0.78)",
-  tabBarBorder: "rgba(255,255,255,0.08)",
-  badgePendingBg: "rgba(245,158,11,0.15)",
+  border: "rgba(255,255,255,0.08)",
+  divider: "rgba(255,255,255,0.06)",
+  tabBarBg: "rgba(20,27,39,0.55)",
+  tabBarBorder: "rgba(255,255,255,0.07)",
+  tabBarBlurTint: "dark",
+  tabBarActivePill: "rgba(52,209,122,0.20)",
+  badgePendingBg: "rgba(251,191,36,0.15)",
   badgePendingText: "#FBBF24",
-  badgeApprovedBg: "rgba(34,197,94,0.15)",
-  badgeApprovedText: "#22C55E",
-  badgeBlockedBg: "rgba(239,68,68,0.15)",
+  badgeApprovedBg: "rgba(34,197,94,0.18)",
+  badgeApprovedText: "#34D17A",
+  badgeBlockedBg: "rgba(248,113,113,0.18)",
   badgeBlockedText: "#F87171",
+  shimmer: "rgba(255,255,255,0.06)",
 };
 
 export type ThemeColors = typeof LIGHT;
@@ -105,10 +120,25 @@ export const shadow = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Live palette — read by both `useTheme()` and the legacy `colors` proxy.
+// ---------------------------------------------------------------------------
+let _active: ThemeColors = LIGHT;
+const _listeners = new Set<() => void>();
+
+function setActive(next: ThemeColors) {
+  if (next === _active) return;
+  _active = next;
+  _listeners.forEach((fn) => {
+    try { fn(); } catch { /* noop */ }
+  });
+}
+
 type Ctx = {
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
   c: ThemeColors;
+  isDark: boolean;
 };
 
 const ThemeContext = createContext<Ctx | undefined>(undefined);
@@ -140,7 +170,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const effective = mode === "system" ? system : mode;
   const c = effective === "dark" ? DARK : LIGHT;
 
-  const value = useMemo(() => ({ mode, setMode, c }), [mode, setMode, c]);
+  // Keep the live palette in sync so the legacy `colors` proxy serves the
+  // currently active palette.
+  useEffect(() => {
+    setActive(c);
+  }, [c]);
+
+  const value = useMemo<Ctx>(
+    () => ({ mode, setMode, c, isDark: effective === "dark" }),
+    [mode, setMode, c, effective],
+  );
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
@@ -150,6 +189,14 @@ export function useTheme() {
   return ctx;
 }
 
-// Legacy export for files that still import { colors } directly
-// They will render in light-mode colors only — use useTheme() for dynamic theming.
-export const colors = LIGHT;
+// ---------------------------------------------------------------------------
+// Legacy live proxy — `colors.xxx` always reflects the active palette.
+// NOTE: values read at JSX render time work. Values read inside
+// `StyleSheet.create({...})` are frozen at module load; for those, screens
+// override the relevant style properties inline with `c.xxx`.
+// ---------------------------------------------------------------------------
+export const colors: ThemeColors = new Proxy({} as ThemeColors, {
+  get(_t, key: string) {
+    return (_active as any)[key];
+  },
+}) as ThemeColors;

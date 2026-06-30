@@ -1,9 +1,9 @@
-// Simple bar chart built with View — no external chart deps.
+// Simple bar chart built with View — no external chart deps. Theme-reactive.
 
-import React from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { colors, typography } from "@/src/theme";
+import { typography, useTheme, type ThemeColors } from "@/src/theme";
 
 type Point = { date: string; value: number };
 
@@ -14,13 +14,13 @@ type Props = {
 };
 
 function shortLabel(iso: string): string {
-  // Show only the day of month, e.g., "30"
   return iso.slice(8, 10);
 }
 
 export function BarChart({ data, height = 160, testID }: Props) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const max = Math.max(1, ...data.map((d) => d.value));
-  // Decide label density: show ~6 labels max
   const labelEvery = Math.max(1, Math.ceil(data.length / 6));
 
   return (
@@ -37,11 +37,7 @@ export function BarChart({ data, height = 160, testID }: Props) {
       </View>
       <View style={styles.axis}>
         {data.map((p, i) => (
-          <Text
-            key={`l-${p.date}-${i}`}
-            style={styles.axisLabel}
-            numberOfLines={1}
-          >
+          <Text key={`l-${p.date}-${i}`} style={styles.axisLabel} numberOfLines={1}>
             {i % labelEvery === 0 ? shortLabel(p.date) : ""}
           </Text>
         ))}
@@ -55,28 +51,29 @@ export function BarChart({ data, height = 160, testID }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: { gap: 8 },
-  chart: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 4,
-    paddingHorizontal: 4,
-  },
-  col: { flex: 1, alignItems: "center", justifyContent: "flex-end" },
-  bar: {
-    width: "100%",
-    backgroundColor: colors.primary,
-    borderRadius: 4,
-    minHeight: 3,
-  },
-  axis: { flexDirection: "row", paddingHorizontal: 4, gap: 4 },
-  axisLabel: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    flex: 1,
-    textAlign: "center",
-  },
-  legend: { alignItems: "flex-end" },
-  legendText: { ...typography.caption, color: colors.textSecondary },
-});
+const makeStyles = (c: ThemeColors) =>
+  StyleSheet.create({
+    wrap: { gap: 8 },
+    chart: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      gap: 4,
+      paddingHorizontal: 4,
+    },
+    col: { flex: 1, alignItems: "center", justifyContent: "flex-end" },
+    bar: {
+      width: "100%",
+      backgroundColor: c.primary,
+      borderRadius: 4,
+      minHeight: 3,
+    },
+    axis: { flexDirection: "row", paddingHorizontal: 4, gap: 4 },
+    axisLabel: {
+      ...typography.caption,
+      color: c.textTertiary,
+      flex: 1,
+      textAlign: "center",
+    },
+    legend: { alignItems: "flex-end" },
+    legendText: { ...typography.caption, color: c.textSecondary },
+  });

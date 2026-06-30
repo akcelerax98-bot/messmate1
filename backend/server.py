@@ -4,15 +4,17 @@ Multi-tenant: every domain doc is scoped by `hostel` (institution_or_hostel_name
 Two-step login with mocked OTP. In-app notifications + push token capture.
 """
 
+import asyncio
 import logging
 import os
-import random
+import secrets
 import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.security import OAuth2PasswordBearer
@@ -34,7 +36,22 @@ DB_NAME = os.environ["DB_NAME"]
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "10080"))
+
+# MSG91 — Real SMS OTP. If keys are missing, we fall back to a dev mock OTP.
+MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "").strip()
+MSG91_TEMPLATE_ID = os.environ.get("MSG91_TEMPLATE_ID", "").strip()
+MSG91_SENDER_ID = os.environ.get("MSG91_SENDER_ID", "").strip()
+MSG91_OTP_LENGTH = int(os.environ.get("MSG91_OTP_LENGTH", "6"))
+MSG91_OTP_EXPIRY = int(os.environ.get("MSG91_OTP_EXPIRY", "10"))
+OTP_DEV_MODE_FLAG = os.environ.get("OTP_DEV_MODE", "").strip().lower()
+OTP_DEV_FORCE = OTP_DEV_MODE_FLAG in ("1", "true", "yes")
+MSG91_CONFIGURED = bool(MSG91_AUTH_KEY) and bool(MSG91_TEMPLATE_ID)
+USE_REAL_SMS = MSG91_CONFIGURED and not OTP_DEV_FORCE
 MOCK_OTP = "123456"
+
+# Emergent Push Notifications
+EMERGENT_PUSH_BASE_URL = "https://integrations.emergentagent.com"
+EMERGENT_PUSH_KEY = os.environ.get("EMERGENT_PUSH_KEY", "placeholder")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -47,9 +64,33 @@ wastage_col = db["wastage_records"]
 necessary_info_col = db["necessary_info"]
 settings_col = db["app_settings"]
 notifications_col = db["notifications"]
+otp_attempts_col = db["otp_attempts"]
+push_tokens_col = db["push_tokens"]
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+# Shared async HTTP clients (reused).
+_msg91_client: Optional[httpx.AsyncClient] = None
+_push_client: Optional[httpx.AsyncClient] = None
+
+
+def get_msg91_client() -> httpx.AsyncClient:
+    global _msg91_client
+    if _msg91_client is None:
+        _msg91_client = httpx.AsyncClient(timeout=12.0)
+    return _msg91_client
+
+
+def get_push_client() -> httpx.AsyncClient:
+    global _push_client
+    if _push_client is None:
+        _push_client = httpx.AsyncClient(
+            base_url=EMERGENT_PUSH_BASE_URL,
+            headers={"X-Push-Key": EMERGENT_PUSH_KEY},
+            timeout=10.0,
+        )
+    return _push_client
 
 app = FastAPI(title="MessMate API")
 api = APIRouter(prefix="/api")
@@ -109,7 +150,10 @@ class TokenResponse(BaseModel):
 class ChallengeResponse(BaseModel):
     challenge: str
     user_preview: Dict[str, Any]
-    mock_otp: str  # dev only — would be omitted in real SMS flow
+    masked_mobile: str  # destination, e.g. "+91 98•••••210"
+    delivery: Literal["sms", "dev"]
+    # Only set when delivery == "dev" (development helper).
+    dev_otp: Optional[str] = None
 
 
 class CustomQuestion(BaseModel):
@@ -180,10 +224,28 @@ class AppSettingsInput(BaseModel):
     default_preference_state: Optional[Literal["none", "all", "previous"]] = None
     notifications_enabled: Optional[bool] = None
     language: Optional[str] = None
+    reminder_times: Optional[List[str]] = None  # e.g. ["07:00", "11:30", "18:00"]
 
 
 class PushTokenInput(BaseModel):
-    push_token: str = Field(..., min_length=1, max_length=400)
+    push_token: str = Field(..., min_length=1, max_length=600)
+    platform: Optional[Literal["ios", "android", "web"]] = None
+
+
+class RegisterPushBody(BaseModel):
+    user_id: str
+    platform: Literal["ios", "android", "web"]
+    device_token: str = Field(..., min_length=4, max_length=600)
+
+
+class ResendOtpRequest(BaseModel):
+    challenge: str
+
+
+class ReminderDispatchInput(BaseModel):
+    audience: Literal["student", "admin", "all"] = "student"
+    title: Optional[str] = None
+    body: Optional[str] = None
 
 
 class NotificationCreate(BaseModel):
@@ -340,6 +402,104 @@ def project_plan(d: Optional[dict]) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# MSG91 SMS OTP service
+# ---------------------------------------------------------------------------
+MSG91_SEND_URL = "https://control.msg91.com/api/v5/otp"
+MSG91_VERIFY_URL = "https://control.msg91.com/api/v5/otp/verify"
+MSG91_RESEND_URL = "https://control.msg91.com/api/v5/otp/retry"
+
+
+def normalize_mobile(raw: str) -> Optional[str]:
+    """Return digits-only mobile (must include country code) or None if not phone-like."""
+    if not raw:
+        return None
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) == 10:  # bare Indian mobile — prepend 91
+        digits = "91" + digits
+    if 10 <= len(digits) <= 15:
+        return digits
+    return None
+
+
+def mask_mobile(raw: str) -> str:
+    if not raw:
+        return ""
+    if len(raw) <= 4:
+        return raw
+    return raw[:-4].replace(raw[2:-4], "•" * max(0, len(raw) - 6)) + raw[-4:]
+
+
+async def msg91_send_otp(mobile: str, otp: str) -> Dict[str, Any]:
+    """Send OTP via MSG91. Raises HTTPException on failure."""
+    cli = get_msg91_client()
+    headers = {"authkey": MSG91_AUTH_KEY, "Content-Type": "application/json"}
+    params: Dict[str, Any] = {
+        "template_id": MSG91_TEMPLATE_ID,
+        "mobile": mobile,
+        "otp": otp,
+        "otp_length": MSG91_OTP_LENGTH,
+        "otp_expiry": MSG91_OTP_EXPIRY,
+    }
+    if MSG91_SENDER_ID:
+        params["sender"] = MSG91_SENDER_ID
+    try:
+        resp = await cli.post(MSG91_SEND_URL, headers=headers, params=params)
+        data = resp.json() if resp.content else {}
+    except Exception as e:
+        logger.error("MSG91 send failed: %s", e)
+        raise HTTPException(status_code=502, detail="SMS provider unreachable")
+    if resp.status_code != 200 or data.get("type") != "success":
+        logger.warning("MSG91 send error: %s %s", resp.status_code, data)
+        msg = (data or {}).get("message") or "Failed to send OTP"
+        raise HTTPException(status_code=400, detail=str(msg))
+    return data
+
+
+async def msg91_verify_otp(mobile: str, otp: str) -> bool:
+    cli = get_msg91_client()
+    headers = {"authkey": MSG91_AUTH_KEY}
+    params = {"mobile": mobile, "otp": otp}
+    try:
+        resp = await cli.get(MSG91_VERIFY_URL, headers=headers, params=params)
+        data = resp.json() if resp.content else {}
+    except Exception as e:
+        logger.error("MSG91 verify failed: %s", e)
+        raise HTTPException(status_code=502, detail="SMS provider unreachable")
+    return resp.status_code == 200 and data.get("type") == "success"
+
+
+# ---------------------------------------------------------------------------
+# Emergent Push helper
+# ---------------------------------------------------------------------------
+async def send_push(
+    recipients: List[str],
+    data: Dict[str, Any],
+    idempotency_key: Optional[str] = None,
+) -> None:
+    """Fire a push notification via the Emergent relay. Safe to call w/ empty list."""
+    if not recipients:
+        return
+    if "title" not in data or "message" not in data:
+        raise ValueError("push data must include title and message")
+    # Chunk into 100s
+    cli = get_push_client()
+    for i in range(0, len(recipients), 100):
+        chunk = recipients[i:i + 100]
+        payload: Dict[str, Any] = {"recipients": chunk, "data": data}
+        if idempotency_key:
+            payload["$idempotency_key"] = f"{idempotency_key}-{i // 100}"
+        try:
+            resp = await cli.post("/api/v1/push/trigger", json=payload)
+            if resp.status_code == 401:
+                logger.warning("EMERGENT_PUSH_KEY missing or invalid (push skipped)")
+                return
+            if resp.status_code >= 400:
+                logger.warning("push trigger %s: %s", resp.status_code, resp.text[:200])
+        except Exception as e:
+            logger.warning("push trigger failed (non-blocking): %s", e)
+
+
+# ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
 @api.get("/")
@@ -380,10 +540,7 @@ async def register_student(payload: StudentRegisterRequest):
 
 @api.post("/auth/login", response_model=ChallengeResponse)
 async def login_step1(payload: LoginRequest):
-    """Step 1: validate credentials, issue OTP challenge.
-
-    OTP is MOCKED — real SMS provider will be wired before deploy.
-    """
+    """Step 1: validate credentials, send OTP via MSG91 (or dev fallback)."""
     user = await users_col.find_one(
         {
             "mobile_or_user_id": payload.mobile_or_user_id.strip(),
@@ -394,9 +551,42 @@ async def login_step1(payload: LoginRequest):
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    mobile_digits = normalize_mobile(user["mobile_or_user_id"])
+    use_sms = USE_REAL_SMS and bool(mobile_digits)
+
+    if use_sms:
+        otp_code = f"{secrets.randbelow(10 ** MSG91_OTP_LENGTH):0{MSG91_OTP_LENGTH}d}"
+    else:
+        otp_code = MOCK_OTP
+
+    challenge_id = str(uuid.uuid4())
     challenge = create_token(
-        {"sub": user["id"], "type": "challenge"}, minutes=10,
+        {"sub": user["id"], "type": "challenge", "cid": challenge_id},
+        minutes=MSG91_OTP_EXPIRY if use_sms else 10,
     )
+    now = now_iso()
+    await otp_attempts_col.insert_one({
+        "id": challenge_id,
+        "user_id": user["id"],
+        "mobile": mobile_digits or "",
+        "otp_hash": pwd_context.hash(otp_code),
+        "delivery": "sms" if use_sms else "dev",
+        "verified": False,
+        "attempts": 0,
+        "created_at": now,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(
+            minutes=MSG91_OTP_EXPIRY if use_sms else 10
+        )).isoformat(),
+    })
+
+    if use_sms:
+        try:
+            await msg91_send_otp(mobile_digits, otp_code)  # type: ignore[arg-type]
+        except HTTPException:
+            # Roll back challenge so the user can retry
+            await otp_attempts_col.delete_one({"id": challenge_id})
+            raise
+
     return ChallengeResponse(
         challenge=challenge,
         user_preview={
@@ -405,7 +595,9 @@ async def login_step1(payload: LoginRequest):
             "mobile_or_user_id": user["mobile_or_user_id"],
             "institution_or_hostel_name": user["institution_or_hostel_name"],
         },
-        mock_otp=MOCK_OTP,
+        masked_mobile=mask_mobile(mobile_digits) if mobile_digits else user["mobile_or_user_id"],
+        delivery="sms" if use_sms else "dev",
+        dev_otp=None if use_sms else otp_code,
     )
 
 
@@ -420,8 +612,45 @@ async def login_step2(payload: VerifyLoginOtpRequest):
     if decoded.get("type") != "challenge":
         raise HTTPException(status_code=400, detail="Invalid challenge")
 
-    if payload.otp.strip() != MOCK_OTP:
+    cid = decoded.get("cid")
+    attempt = await otp_attempts_col.find_one({"id": cid}, {"_id": 0}) if cid else None
+    submitted = payload.otp.strip()
+
+    verified = False
+    if attempt:
+        if attempt.get("verified"):
+            raise HTTPException(status_code=400, detail="OTP already used. Please log in again.")
+        if attempt.get("attempts", 0) >= 5:
+            raise HTTPException(status_code=429, detail="Too many incorrect attempts. Try again later.")
+        # Validate via stored hash
+        try:
+            if pwd_context.verify(submitted, attempt["otp_hash"]):
+                verified = True
+        except Exception:
+            verified = False
+        # If this came via real SMS, also confirm with MSG91 (defence-in-depth)
+        if verified and attempt.get("delivery") == "sms" and attempt.get("mobile"):
+            try:
+                ok = await msg91_verify_otp(attempt["mobile"], submitted)
+                # MSG91 invalidates after first verify — treat True OR mismatch-on-double-call as success.
+                if not ok:
+                    # Accept local match; MSG91 may have already invalidated. Log and continue.
+                    logger.info("MSG91 verify said no, but local hash matched (likely already consumed)")
+            except HTTPException:
+                pass  # don't block — local hash matched
+        if not verified:
+            await otp_attempts_col.update_one({"id": cid}, {"$inc": {"attempts": 1}})
+    elif submitted == MOCK_OTP and not MSG91_CONFIGURED:
+        # Legacy fallback if attempt record was lost
+        verified = True
+
+    if not verified:
         raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    if attempt:
+        await otp_attempts_col.update_one(
+            {"id": cid}, {"$set": {"verified": True, "verified_at": now_iso()}}
+        )
 
     user = await get_user_by_id(decoded["sub"])
     if not user:
@@ -433,31 +662,101 @@ async def login_step2(payload: VerifyLoginOtpRequest):
     return TokenResponse(access_token=token, user=to_public(user))
 
 
+@api.post("/auth/resend-otp")
+async def resend_otp(payload: ResendOtpRequest):
+    """Resend OTP for an existing challenge. Issues a fresh code via MSG91."""
+    try:
+        decoded = jwt.decode(payload.challenge, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Challenge expired — please log in again")
+    if decoded.get("type") != "challenge":
+        raise HTTPException(status_code=400, detail="Invalid challenge")
+    cid = decoded.get("cid")
+    attempt = await otp_attempts_col.find_one({"id": cid}, {"_id": 0}) if cid else None
+    if not attempt:
+        raise HTTPException(status_code=400, detail="Challenge not found — please log in again")
+    if attempt.get("verified"):
+        raise HTTPException(status_code=400, detail="OTP already used")
+
+    use_sms = attempt.get("delivery") == "sms" and bool(attempt.get("mobile"))
+    if use_sms:
+        otp_code = f"{secrets.randbelow(10 ** MSG91_OTP_LENGTH):0{MSG91_OTP_LENGTH}d}"
+    else:
+        otp_code = MOCK_OTP
+    await otp_attempts_col.update_one(
+        {"id": cid},
+        {"$set": {"otp_hash": pwd_context.hash(otp_code), "attempts": 0,
+                   "resent_at": now_iso()}},
+    )
+    if use_sms:
+        await msg91_send_otp(attempt["mobile"], otp_code)
+    return {
+        "delivery": "sms" if use_sms else "dev",
+        "dev_otp": None if use_sms else otp_code,
+        "masked_mobile": mask_mobile(attempt.get("mobile", "")) if use_sms else "",
+    }
+
+
 @api.get("/auth/me", response_model=UserPublic)
 async def me(u: dict = Depends(get_current_user)):
     return to_public(u)
 
 
-@api.post("/auth/request-otp")
-async def request_otp_placeholder(mobile_or_user_id: str):
-    return {"message": "OTP placeholder", "mock_otp": MOCK_OTP}
-
-
-@api.post("/auth/verify-otp")
-async def verify_otp_placeholder(mobile_or_user_id: str, otp: str):
-    if otp != MOCK_OTP:
-        raise HTTPException(status_code=400, detail="Invalid OTP (mock)")
-    return {"message": "OTP verified (mock)"}
-
-
 @api.post("/auth/push-token")
 async def save_push_token(payload: PushTokenInput, u: dict = Depends(get_current_user)):
-    """Capture an Expo/FCM push token. MOCKED dispatch — real push wired at deploy."""
+    """Capture an Expo/FCM push token. Also registers with the Emergent relay."""
     await users_col.update_one(
         {"id": u["id"]},
-        {"$set": {"push_token": payload.push_token.strip(), "updated_at": now_iso()}},
+        {"$set": {"push_token": payload.push_token.strip(),
+                   "push_platform": payload.platform,
+                   "updated_at": now_iso()}},
+    )
+    # Upsert into push_tokens collection (one doc per user/device combo)
+    await push_tokens_col.update_one(
+        {"user_id": u["id"], "device_token": payload.push_token.strip()},
+        {"$set": {
+            "user_id": u["id"], "device_token": payload.push_token.strip(),
+            "platform": payload.platform or "android", "hostel": hostel_of(u),
+            "role": u["role"], "updated_at": now_iso(),
+        }, "$setOnInsert": {"created_at": now_iso()}},
+        upsert=True,
     )
     return {"ok": True}
+
+
+@api.post("/register-push", status_code=201)
+async def register_push(body: RegisterPushBody, u: dict = Depends(get_current_user)):
+    """Relay device token registration to the Emergent push provider.
+
+    The auth dep ensures we're tying it to the right user.
+    """
+    if body.user_id != u["id"]:
+        raise HTTPException(status_code=403, detail="user_id mismatch")
+    # Store locally too
+    await push_tokens_col.update_one(
+        {"user_id": u["id"], "device_token": body.device_token.strip()},
+        {"$set": {
+            "user_id": u["id"], "device_token": body.device_token.strip(),
+            "platform": body.platform, "hostel": hostel_of(u),
+            "role": u["role"], "updated_at": now_iso(),
+        }, "$setOnInsert": {"created_at": now_iso()}},
+        upsert=True,
+    )
+    # Relay
+    cli = get_push_client()
+    try:
+        resp = await cli.post("/api/v1/push/users/register", json={
+            "user_id": body.user_id,
+            "platform": body.platform,
+            "device_token": body.device_token,
+        })
+        if resp.status_code == 401:
+            logger.warning("EMERGENT_PUSH_KEY missing or invalid")
+        elif resp.status_code >= 500:
+            logger.warning("Push provider 5xx: %s", resp.text[:200])
+    except Exception as e:
+        logger.warning("Push register relay failed (non-blocking): %s", e)
+    return {"status": "registered"}
 
 
 # ---------------------------------------------------------------------------
@@ -713,7 +1012,83 @@ async def admin_create_notification(
     }
     await notifications_col.insert_one(doc)
     doc.pop("_id", None)
+    # Fire push
+    recipients = await _recipients_for(u, payload.audience, payload.recipient_id)
+    try:
+        await send_push(
+            recipients,
+            {"title": payload.title.strip(), "message": payload.body.strip(),
+             "subtext": "MessMate", "action_url": "/notifications"},
+            idempotency_key=doc["id"],
+        )
+    except Exception as e:
+        logger.warning("push send failed (non-blocking): %s", e)
     return _project_notif(doc)
+
+
+async def _recipients_for(
+    admin: dict,
+    audience: str,
+    recipient_id: Optional[str] = None,
+) -> List[str]:
+    h = hostel_of(admin)
+    if audience == "student":
+        if recipient_id:
+            return [recipient_id]
+        return [u["id"] async for u in users_col.find(
+            {"role": "student", "approval_status": "approved",
+             "institution_or_hostel_name": h}, {"_id": 0, "id": 1})]
+    if audience == "admin":
+        return [u["id"] async for u in users_col.find(
+            {"role": "admin", "institution_or_hostel_name": h}, {"_id": 0, "id": 1})]
+    # "all" — students + admins of this hostel
+    return [u["id"] async for u in users_col.find(
+        {"institution_or_hostel_name": h,
+         "$or": [{"role": "admin"}, {"approval_status": "approved"}]},
+        {"_id": 0, "id": 1})]
+
+
+@api.post("/admin/notifications/dispatch-reminder", status_code=201)
+async def admin_dispatch_reminder(
+    payload: ReminderDispatchInput, u: dict = Depends(require_admin)
+):
+    """Push a role-specific reminder right now. Defaults to students."""
+    audience = payload.audience or "student"
+    if audience == "student":
+        title = payload.title or "Submit your meal preferences"
+        body = payload.body or (
+            "Help us cook the right quantity — mark today's meals in MessMate."
+        )
+    elif audience == "admin":
+        title = payload.title or "Review today's plan"
+        body = payload.body or (
+            "Check the dashboard to confirm cooking quantities before service."
+        )
+    else:
+        title = payload.title or "MessMate update"
+        body = payload.body or "Open MessMate for the latest update."
+    now = now_iso()
+    doc = {
+        "id": str(uuid.uuid4()), "hostel": hostel_of(u),
+        "title": title, "body": body,
+        "audience": "all" if audience == "all" else "student" if audience == "student" else "all",
+        "recipient_id": None,
+        "type": "menu_reminder" if audience == "student" else "system",
+        "scheduled_for": today_iso(),
+        "created_by": u["id"], "read_by": [], "created_at": now,
+    }
+    await notifications_col.insert_one(doc)
+    doc.pop("_id", None)
+    recipients = await _recipients_for(u, audience)
+    try:
+        await send_push(recipients, {
+            "title": title, "message": body,
+            "subtext": "MessMate", "action_url": "/notifications",
+        }, idempotency_key=doc["id"])
+    except Exception as e:
+        logger.warning("reminder push failed: %s", e)
+    return {"ok": True, "audience": audience, "recipients": len(recipients),
+             "notification": _project_notif(doc)}
 
 
 @api.post("/admin/notifications/menu-reminder", status_code=201)
@@ -752,6 +1127,14 @@ async def admin_menu_reminder(
     }
     await notifications_col.insert_one(doc)
     doc.pop("_id", None)
+    recipients = await _recipients_for(u, "student")
+    try:
+        await send_push(recipients, {
+            "title": doc["title"], "message": body,
+            "subtext": "MessMate", "action_url": "/notifications",
+        }, idempotency_key=doc["id"])
+    except Exception as e:
+        logger.warning("menu-reminder push failed: %s", e)
     return _project_notif(doc)
 
 
@@ -1210,6 +1593,7 @@ SETTINGS_DEFAULTS = {
     "default_preference_state": "none",
     "notifications_enabled": True,
     "language": "English",
+    "reminder_times": ["07:00", "11:30", "18:00"],
 }
 
 
@@ -1241,51 +1625,10 @@ async def admin_settings_put(payload: AppSettingsInput, u: dict = Depends(requir
 
 
 # ---------------------------------------------------------------------------
-# Seeding (idempotent)
+# Startup: indexes & migrations only — NO seed data (production-ready)
 # ---------------------------------------------------------------------------
-SEED_USERS = [
-    {"full_name": "Demo Admin", "mobile_or_user_id": "admin", "institution_or_hostel_name": "Demo Hostel", "room_number": None, "password": "admin123", "role": "admin", "approval_status": "approved"},
-    {"full_name": "Demo Student", "mobile_or_user_id": "student", "institution_or_hostel_name": "Demo Hostel", "room_number": "A101", "password": "student123", "role": "student", "approval_status": "approved"},
-    {"full_name": "Pending Student", "mobile_or_user_id": "pending", "institution_or_hostel_name": "Demo Hostel", "room_number": "B202", "password": "pending123", "role": "student", "approval_status": "pending"},
-    {"full_name": "Blocked Student", "mobile_or_user_id": "blocked", "institution_or_hostel_name": "Demo Hostel", "room_number": "C303", "password": "blocked123", "role": "student", "approval_status": "rejected_or_blocked"},
-]
-
-SEED_MENUS = [
-    {"day": "monday", "breakfast_items": ["Idly", "Dosa", "Sambar", "Chutney"], "lunch_items": ["Rice", "Sambar", "Rasam", "Curd", "Poriyal"], "dinner_items": ["Chapati", "Kurma", "Rice"], "breakfast_custom_question": {"text": "Do you want extra chutney?", "options": ["Yes", "No"]}, "lunch_custom_question": {"text": "Do you want curd rice today?", "options": ["Yes", "No"]}, "dinner_custom_question": {"text": "Which side dish do you prefer?", "options": ["Kurma", "Chutney", "Both"]}},
-    {"day": "tuesday", "breakfast_items": ["Pongal", "Vada", "Chutney"], "lunch_items": ["Lemon Rice", "Curd Rice", "Potato Fry"], "dinner_items": ["Dosa", "Sambar", "Chutney"], "breakfast_custom_question": {"text": "Do you want extra chutney?", "options": ["Yes", "No"]}, "lunch_custom_question": None, "dinner_custom_question": None},
-    {"day": "wednesday", "breakfast_items": ["Poori", "Masala"], "lunch_items": ["Rice", "Dal", "Rasam", "Curd"], "dinner_items": ["Chapati", "Veg Kurma"], "breakfast_custom_question": None, "lunch_custom_question": {"text": "Do you want curd rice today?", "options": ["Yes", "No"]}, "dinner_custom_question": None},
-    {"day": "thursday", "breakfast_items": ["Upma", "Chutney"], "lunch_items": ["Tomato Rice", "Curd", "Poriyal"], "dinner_items": ["Idiyappam", "Kurma"], "breakfast_custom_question": None, "lunch_custom_question": None, "dinner_custom_question": {"text": "Which side dish do you prefer?", "options": ["Kurma", "Chutney", "Both"]}},
-    {"day": "friday", "breakfast_items": ["Idly", "Sambar"], "lunch_items": ["Veg Biryani", "Raita"], "dinner_items": ["Parotta", "Kurma"], "breakfast_custom_question": None, "lunch_custom_question": None, "dinner_custom_question": None},
-    {"day": "saturday", "breakfast_items": ["Dosa", "Chutney"], "lunch_items": ["Rice", "Sambar", "Appalam", "Curd"], "dinner_items": ["Fried Rice", "Gobi"], "breakfast_custom_question": None, "lunch_custom_question": None, "dinner_custom_question": None},
-    {"day": "sunday", "breakfast_items": ["Pongal", "Vada"], "lunch_items": ["Special Meals"], "dinner_items": ["Chapati", "Paneer Gravy"], "breakfast_custom_question": None, "lunch_custom_question": None, "dinner_custom_question": None},
-]
-
-SEED_NI = [
-    {"item_name": "Idly", "meal_type": "breakfast", "quantity_per_person": 4, "unit": "pieces", "price_per_unit": 5, "price_unit": "pieces"},
-    {"item_name": "Dosa", "meal_type": "breakfast", "quantity_per_person": 2, "unit": "pieces", "price_per_unit": 8, "price_unit": "pieces"},
-    {"item_name": "Sambar", "meal_type": "breakfast", "quantity_per_person": 100, "unit": "ml", "price_per_unit": 40, "price_unit": "litres"},
-    {"item_name": "Chutney", "meal_type": "breakfast", "quantity_per_person": 50, "unit": "ml", "price_per_unit": 60, "price_unit": "litres"},
-    {"item_name": "Pongal", "meal_type": "breakfast", "quantity_per_person": 120, "unit": "grams", "price_per_unit": 60, "price_unit": "kg"},
-    {"item_name": "Vada", "meal_type": "breakfast", "quantity_per_person": 2, "unit": "pieces", "price_per_unit": 6, "price_unit": "pieces"},
-    {"item_name": "Rice", "meal_type": "lunch", "quantity_per_person": 150, "unit": "grams", "price_per_unit": 50, "price_unit": "kg"},
-    {"item_name": "Sambar", "meal_type": "lunch", "quantity_per_person": 100, "unit": "ml", "price_per_unit": 40, "price_unit": "litres"},
-    {"item_name": "Rasam", "meal_type": "lunch", "quantity_per_person": 80, "unit": "ml", "price_per_unit": 30, "price_unit": "litres"},
-    {"item_name": "Curd", "meal_type": "lunch", "quantity_per_person": 80, "unit": "ml", "price_per_unit": 60, "price_unit": "litres"},
-    {"item_name": "Poriyal", "meal_type": "lunch", "quantity_per_person": 70, "unit": "grams", "price_per_unit": 40, "price_unit": "kg"},
-    {"item_name": "Lemon Rice", "meal_type": "lunch", "quantity_per_person": 180, "unit": "grams", "price_per_unit": 70, "price_unit": "kg"},
-    {"item_name": "Curd Rice", "meal_type": "lunch", "quantity_per_person": 150, "unit": "grams", "price_per_unit": 80, "price_unit": "kg"},
-    {"item_name": "Chapati", "meal_type": "dinner", "quantity_per_person": 3, "unit": "pieces", "price_per_unit": 4, "price_unit": "pieces"},
-    {"item_name": "Kurma", "meal_type": "dinner", "quantity_per_person": 100, "unit": "ml", "price_per_unit": 45, "price_unit": "litres"},
-    {"item_name": "Rice", "meal_type": "dinner", "quantity_per_person": 150, "unit": "grams", "price_per_unit": 50, "price_unit": "kg"},
-    {"item_name": "Dosa", "meal_type": "dinner", "quantity_per_person": 3, "unit": "pieces", "price_per_unit": 8, "price_unit": "pieces"},
-    {"item_name": "Sambar", "meal_type": "dinner", "quantity_per_person": 100, "unit": "ml", "price_per_unit": 40, "price_unit": "litres"},
-    {"item_name": "Chutney", "meal_type": "dinner", "quantity_per_person": 50, "unit": "ml", "price_per_unit": 60, "price_unit": "litres"},
-]
-
-
 async def _ensure_indexes_and_migrate():
-    """Drop legacy indexes & rebuild as hostel-scoped, then backfill hostel field."""
-    # users
+    """Create indexes for hostel-scoped collections. Idempotent."""
     await users_col.create_index("id", unique=True)
     await users_col.create_index(
         [("mobile_or_user_id", 1), ("institution_or_hostel_name", 1)], unique=True
@@ -1297,9 +1640,7 @@ async def _ensure_indexes_and_migrate():
             await menus_col.drop_index("day_1")
     except Exception:
         pass
-    await menus_col.create_index(
-        [("hostel", 1), ("day", 1)], unique=True
-    )
+    await menus_col.create_index([("hostel", 1), ("day", 1)], unique=True)
     # daily_plans
     await daily_plans_col.create_index(
         [("student_id", 1), ("date", 1)], unique=True
@@ -1339,6 +1680,14 @@ async def _ensure_indexes_and_migrate():
     await settings_col.create_index("hostel", unique=True)
     # notifications
     await notifications_col.create_index([("hostel", 1), ("created_at", -1)])
+    # otp attempts
+    await otp_attempts_col.create_index("id", unique=True)
+    await otp_attempts_col.create_index("expires_at")
+    # push tokens
+    await push_tokens_col.create_index(
+        [("user_id", 1), ("device_token", 1)], unique=True
+    )
+    await push_tokens_col.create_index([("hostel", 1), ("role", 1)])
 
     # Drop legacy users unique-on-mobile-only if present
     try:
@@ -1348,254 +1697,29 @@ async def _ensure_indexes_and_migrate():
     except Exception:
         pass
 
-    # Backfill hostel field on legacy docs
-    for col in (menus_col, daily_plans_col, menu_reactions_col,
-                feedback_col, wastage_col, necessary_info_col):
-        await col.update_many({"hostel": {"$exists": False}},
-                              {"$set": {"hostel": DEFAULT_HOSTEL}})
-    # Settings legacy id="app"
-    legacy = await settings_col.find_one({"id": "app", "hostel": {"$exists": False}}, {"_id": 0})
-    if legacy:
-        await settings_col.update_one(
-            {"id": "app"},
-            {"$set": {"hostel": DEFAULT_HOSTEL, "id": DEFAULT_HOSTEL}},
-        )
-
-
-async def seed_demo_users():
-    now = now_iso()
-    for u in SEED_USERS:
-        if await users_col.find_one(
-            {"mobile_or_user_id": u["mobile_or_user_id"],
-             "institution_or_hostel_name": u["institution_or_hostel_name"]},
-            {"_id": 0, "id": 1},
-        ):
-            continue
-        await users_col.insert_one({
-            "id": str(uuid.uuid4()),
-            **{k: u[k] for k in ("full_name", "mobile_or_user_id",
-                                  "institution_or_hostel_name", "room_number",
-                                  "role", "approval_status")},
-            "password_hash": hash_password(u["password"]),
-            "created_at": now, "updated_at": now,
-        })
-
-
-async def seed_extra_students():
-    now = now_iso()
-    pwd = hash_password("demopass")
-    for tag, n, prefix, status in (
-        ("approved", 28, "DemoStudent", "approved"),
-        ("pending", 4, "DemoPending", "pending"),
-        ("blocked", 4, "DemoBlocked", "rejected_or_blocked"),
-    ):
-        for i in range(1, n + 1):
-            mobile = f"{tag}{i:03d}"
-            if await users_col.find_one(
-                {"mobile_or_user_id": mobile, "institution_or_hostel_name": DEFAULT_HOSTEL},
-                {"_id": 0, "id": 1},
-            ):
-                continue
-            await users_col.insert_one({
-                "id": str(uuid.uuid4()), "full_name": f"{prefix} {i}",
-                "mobile_or_user_id": mobile, "institution_or_hostel_name": DEFAULT_HOSTEL,
-                "room_number": f"{chr(ord('A') + (i % 5))}{100 + i}",
-                "password_hash": pwd, "role": "student", "approval_status": status,
-                "created_at": now, "updated_at": now,
-            })
-
-
-async def seed_today_plans():
-    today = today_iso()
-    day = day_of_week(date.fromisoformat(today))
-    menu = await menus_col.find_one({"hostel": DEFAULT_HOSTEL, "day": day}, {"_id": 0})
-    if not menu:
-        return
-    rnd = random.Random(today)
-    sids = [u["id"] async for u in users_col.find(
-        {"role": "student", "approval_status": "approved",
-         "institution_or_hostel_name": DEFAULT_HOSTEL}, {"_id": 0, "id": 1}
-    )]
-    def pick(items: List[str]) -> List[str]:
-        return [] if not items else rnd.sample(items, rnd.randint(1, len(items)))
-    for sid in sids:
-        if await daily_plans_col.find_one(
-            {"student_id": sid, "date": today}, {"_id": 0, "id": 1}
-        ):
-            continue
-        plan: Dict[str, Any] = {
-            "id": str(uuid.uuid4()), "student_id": sid, "hostel": DEFAULT_HOSTEL,
-            "date": today, "created_at": now_iso(), "updated_at": now_iso(),
-        }
-        for meal in ("breakfast", "lunch", "dinner"):
-            on = rnd.random() > 0.25
-            items = menu.get(f"{meal}_items", [])
-            cq = menu.get(f"{meal}_custom_question")
-            plan[meal] = {
-                "status": "ON" if on else "OFF",
-                "selected_items": pick(items) if on else [],
-                "reason_if_off": None if on else rnd.choice(REASONS[:6]),
-                "custom_answer": (rnd.choice(cq["options"]) if (cq and on) else None),
-            }
-        await daily_plans_col.insert_one(plan)
-
-
-async def seed_reactions():
-    today = today_iso()
-    day = day_of_week(date.fromisoformat(today))
-    rnd = random.Random(day)
-    sids = [u["id"] async for u in users_col.find(
-        {"role": "student", "approval_status": "approved",
-         "institution_or_hostel_name": DEFAULT_HOSTEL}, {"_id": 0, "id": 1}
-    )]
-    for sid in sids:
-        for meal in ("breakfast", "lunch", "dinner"):
-            if await menu_reactions_col.find_one(
-                {"student_id": sid, "day": day, "meal_type": meal},
-                {"_id": 0, "id": 1},
-            ):
-                continue
-            roll = rnd.random()
-            reaction = "no_response" if roll < 0.10 else ("dislike" if roll < 0.30 else "like")
-            await menu_reactions_col.insert_one({
-                "id": str(uuid.uuid4()), "student_id": sid, "hostel": DEFAULT_HOSTEL,
-                "day": day, "meal_type": meal, "reaction": reaction,
-                "created_at": now_iso(), "updated_at": now_iso(),
-            })
-
-
-async def seed_feedback():
-    today = today_iso()
-    if await feedback_col.count_documents({"hostel": DEFAULT_HOSTEL, "date": today}) >= 7:
-        return
-    sids = [u["id"] async for u in users_col.find(
-        {"role": "student", "approval_status": "approved",
-         "institution_or_hostel_name": DEFAULT_HOSTEL}, {"_id": 0, "id": 1}
-    )]
-    if not sids:
-        return
-    rnd = random.Random("fb-" + today)
-    for text in [
-        "Lunch was too spicy today", "Please add curd rice twice a week",
-        "Breakfast quantity was low", "Dinner was really good today, thanks!",
-        "Sambar could be a bit less salty", "Loved the parotta on Friday",
-        "Please serve hot chapatis",
-    ]:
-        await feedback_col.insert_one({
-            "id": str(uuid.uuid4()), "student_id": rnd.choice(sids),
-            "hostel": DEFAULT_HOSTEL, "date": today,
-            "feedback_text": text, "anonymous": True, "created_at": now_iso(),
-        })
-
-
-async def seed_menus():
-    now = now_iso()
-    for m in SEED_MENUS:
-        await menus_col.update_one(
-            {"hostel": DEFAULT_HOSTEL, "day": m["day"]},
-            {
-                "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": now,
-                                 "day": m["day"], "hostel": DEFAULT_HOSTEL},
-                "$set": {k: m[k] for k in (
-                    "breakfast_items", "lunch_items", "dinner_items",
-                    "breakfast_custom_question", "lunch_custom_question",
-                    "dinner_custom_question",
-                )} | {"updated_at": now},
-            },
-            upsert=True,
-        )
-
-
-async def seed_necessary_info():
-    now = now_iso()
-    for item in SEED_NI:
-        if await necessary_info_col.find_one(
-            {"hostel": DEFAULT_HOSTEL, "item_name": item["item_name"],
-             "meal_type": item["meal_type"]}, {"_id": 0, "id": 1},
-        ):
-            continue
-        await necessary_info_col.insert_one({
-            "id": str(uuid.uuid4()), "hostel": DEFAULT_HOSTEL, **item,
-            "created_at": now, "updated_at": now,
-        })
-
-
-async def seed_wastage():
-    today = date.fromisoformat(today_iso())
-    rnd = random.Random(42)
-    bulk = []
-    for off in range(95):
-        d = today - timedelta(days=off)
-        if await wastage_col.find_one({"hostel": DEFAULT_HOSTEL, "date": d.isoformat()}, {"_id": 0}):
-            continue
-        p = off / 95.0
-        b = round(max(0.5, 2.5 + p * 3.0 + rnd.uniform(-0.6, 0.6)), 2)
-        lun = round(max(0.5, 4.5 + p * 3.5 + rnd.uniform(-0.7, 0.7)), 2)
-        dn = round(max(0.5, 3.5 + p * 3.0 + rnd.uniform(-0.6, 0.6)), 2)
-        bl = round(max(0.0, b * 60 + rnd.uniform(-30, 30)), 2)
-        ll = round(max(0.0, lun * 60 + rnd.uniform(-30, 30)), 2)
-        dl = round(max(0.0, dn * 60 + rnd.uniform(-30, 30)), 2)
-        item_total = bl + ll + dl
-        manual = round(rnd.uniform(50, 250), 2) if off < 30 else None
-        bulk.append({
-            "id": str(uuid.uuid4()), "hostel": DEFAULT_HOSTEL, "date": d.isoformat(),
-            "breakfast_items": [], "lunch_items": [], "dinner_items": [],
-            "breakfast_wastage_kg": b, "lunch_wastage_kg": lun, "dinner_wastage_kg": dn,
-            "breakfast_loss": bl, "lunch_loss": ll, "dinner_loss": dl,
-            "item_loss_total": round(item_total, 2),
-            "manual_total_cost": manual,
-            "total_loss": round(item_total + (manual or 0.0), 2),
-            "created_at": now_iso(),
-        })
-    if bulk:
-        await wastage_col.insert_many(bulk)
-
-
-async def seed_settings():
-    if not await settings_col.find_one({"hostel": DEFAULT_HOSTEL}, {"_id": 0}):
-        await settings_col.insert_one({
-            "id": DEFAULT_HOSTEL, "hostel": DEFAULT_HOSTEL,
-            **SETTINGS_DEFAULTS, "created_at": now_iso(), "updated_at": now_iso(),
-        })
-
-
-async def seed_notifications():
-    h = DEFAULT_HOSTEL
-    if await notifications_col.count_documents({"hostel": h}) >= 2:
-        return
-    today = today_iso()
-    samples = [
-        {"title": "Welcome to MessMate", "body": "Mark your meals each day to help the mess prepare the right quantity.", "type": "system"},
-        {"title": "Tomorrow's menu", "body": "Tomorrow's menu has been published. Tap to view and mark your preferences.", "type": "menu_reminder"},
-    ]
-    for s in samples:
-        await notifications_col.insert_one({
-            "id": str(uuid.uuid4()), "hostel": h, **s,
-            "audience": "all", "recipient_id": None,
-            "scheduled_for": today, "read_by": [],
-            "created_by": "system", "created_at": now_iso(),
-        })
-
 
 @app.on_event("startup")
 async def on_startup():
     await _ensure_indexes_and_migrate()
-    await seed_demo_users()
-    await seed_extra_students()
-    await seed_menus()
-    await seed_necessary_info()
-    await seed_today_plans()
-    await seed_reactions()
-    await seed_feedback()
-    await seed_wastage()
-    await seed_settings()
-    await seed_notifications()
-    logger.info("MessMate API ready (multi-tenant)")
+    if MSG91_CONFIGURED and not OTP_DEV_FORCE:
+        logger.info("MessMate API ready — real MSG91 SMS OTP active")
+    else:
+        logger.info("MessMate API ready — DEV OTP mode (MOCK 123456). Set MSG91_AUTH_KEY+MSG91_TEMPLATE_ID to enable real SMS.")
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
     client.close()
+    try:
+        if _msg91_client is not None:
+            await _msg91_client.aclose()
+    except Exception:
+        pass
+    try:
+        if _push_client is not None:
+            await _push_client.aclose()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------

@@ -254,7 +254,9 @@ export const api = {
   }) =>
     request<{
       challenge: string;
-      mock_otp: string;
+      delivery: "sms" | "dev";
+      dev_otp: string | null;
+      masked_mobile: string;
       user_preview: {
         full_name: string;
         role: Role;
@@ -266,6 +268,29 @@ export const api = {
     request<TokenResponse>("/auth/verify-login-otp", {
       method: "POST",
       body: payload,
+    }),
+  resendOtp: (payload: { challenge: string }) =>
+    request<{ delivery: "sms" | "dev"; dev_otp: string | null; masked_mobile: string }>(
+      "/auth/resend-otp",
+      { method: "POST", body: payload },
+    ),
+  savePushToken: (
+    token: string,
+    payload: { push_token: string; platform?: "ios" | "android" | "web" },
+  ) =>
+    request<{ ok: boolean }>("/auth/push-token", {
+      method: "POST",
+      body: payload,
+      token,
+    }),
+  registerPush: (
+    token: string,
+    payload: { user_id: string; platform: "ios" | "android" | "web"; device_token: string },
+  ) =>
+    request<{ status: string }>("/register-push", {
+      method: "POST",
+      body: payload,
+      token,
     }),
   me: (token: string) => request<User>("/auth/me", { token }),
 
@@ -463,6 +488,20 @@ export const api = {
     request<any>("/admin/notifications/menu-reminder", {
       method: "POST",
       body: { custom_body },
+      token,
+    }),
+  adminDispatchReminder: (
+    token: string,
+    payload: { audience?: "student" | "admin" | "all"; title?: string; body?: string },
+  ) =>
+    request<{
+      ok: boolean;
+      audience: string;
+      recipients: number;
+      notification: any;
+    }>("/admin/notifications/dispatch-reminder", {
+      method: "POST",
+      body: payload,
       token,
     }),
 };

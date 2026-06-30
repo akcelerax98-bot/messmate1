@@ -1,9 +1,9 @@
-// Horizontal stacked-bar showing like/dislike ratio.
+// Horizontal stacked-bar showing like/dislike ratio. Theme-reactive.
 
-import React from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { colors, typography } from "@/src/theme";
+import { typography, useTheme, type ThemeColors } from "@/src/theme";
 
 type Props = {
   likePct: number | null;
@@ -12,6 +12,8 @@ type Props = {
 };
 
 export function LikeDislikeBar({ likePct, dislikePct, testID }: Props) {
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   if (likePct === null && dislikePct === null) {
     return (
       <Text style={styles.empty} testID={testID}>
@@ -29,10 +31,10 @@ export function LikeDislikeBar({ likePct, dislikePct, testID }: Props) {
         {lp + dp < 100 ? <View style={[styles.empty2, { flex: 100 - (lp + dp) }]} /> : null}
       </View>
       <View style={styles.labelRow}>
-        <Text style={[styles.label, { color: colors.primary }]}>
+        <Text style={[styles.label, { color: c.primary }]}>
           {Math.round(lp)}% liked
         </Text>
-        <Text style={[styles.label, { color: colors.danger }]}>
+        <Text style={[styles.label, { color: c.danger }]}>
           {Math.round(dp)}% disliked
         </Text>
       </View>
@@ -40,19 +42,20 @@ export function LikeDislikeBar({ likePct, dislikePct, testID }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: { gap: 6 },
-  barRow: {
-    height: 10,
-    borderRadius: 6,
-    overflow: "hidden",
-    flexDirection: "row",
-    backgroundColor: colors.inputBg,
-  },
-  like: { backgroundColor: colors.primary },
-  dislike: { backgroundColor: colors.danger },
-  empty2: { backgroundColor: colors.inputBg },
-  labelRow: { flexDirection: "row", justifyContent: "space-between" },
-  label: { ...typography.caption, fontWeight: "600" },
-  empty: { ...typography.caption, color: colors.textSecondary, fontStyle: "italic" },
-});
+const makeStyles = (c: ThemeColors) =>
+  StyleSheet.create({
+    wrap: { gap: 6 },
+    barRow: {
+      height: 10,
+      borderRadius: 6,
+      overflow: "hidden",
+      flexDirection: "row",
+      backgroundColor: c.inputBg,
+    },
+    like: { backgroundColor: c.primary },
+    dislike: { backgroundColor: c.danger },
+    empty2: { backgroundColor: c.inputBg },
+    labelRow: { flexDirection: "row", justifyContent: "space-between" },
+    label: { ...typography.caption, fontWeight: "600" },
+    empty: { ...typography.caption, color: c.textSecondary, fontStyle: "italic" },
+  });

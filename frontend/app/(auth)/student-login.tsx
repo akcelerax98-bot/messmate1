@@ -1,8 +1,8 @@
-// Student login
+// Student login — Theme-reactive. No demo hints (production).
 
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,15 +15,15 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { api } from "@/src/api/client";
-import { useAuth } from "@/src/auth/AuthContext";
 import { Button } from "@/src/components/Button";
 import { Input } from "@/src/components/Input";
-import { colors, spacing, typography } from "@/src/theme";
+import { spacing, typography, useTheme, type ThemeColors } from "@/src/theme";
 
 export default function StudentLogin() {
   const router = useRouter();
-  const { login } = useAuth();
-  const [hostel, setHostel] = useState("Demo Hostel");
+  const { c } = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const [hostel, setHostel] = useState("");
   const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -50,7 +50,9 @@ export default function StudentLogin() {
         pathname: "/(auth)/otp",
         params: {
           challenge: res.challenge,
-          mock_otp: res.mock_otp,
+          delivery: res.delivery,
+          dev_otp: res.dev_otp || "",
+          masked_mobile: res.masked_mobile,
           full_name: res.user_preview.full_name,
         },
       });
@@ -77,31 +79,27 @@ export default function StudentLogin() {
             style={styles.back}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Feather name="chevron-left" size={26} color={colors.textPrimary} />
+            <Feather name="chevron-left" size={26} color={c.textPrimary} />
           </TouchableOpacity>
 
-          <Text style={styles.title} testID="student-login-title">
-            Welcome back
-          </Text>
-          <Text style={styles.subtitle}>
-            Log in to mark your meals and share preferences.
-          </Text>
+          <Text style={styles.title} testID="student-login-title">Welcome back</Text>
+          <Text style={styles.subtitle}>Log in to mark your meals and share preferences.</Text>
 
           <View style={{ marginTop: spacing.xl }}>
             <Input
               testID="student-hostel-input"
               label="Institution / Hostel name"
-              placeholder="e.g., Demo Hostel"
+              placeholder="e.g., Sunrise Hostel"
               autoCapitalize="words"
               value={hostel}
               onChangeText={setHostel}
             />
             <Input
               testID="student-mobile-input"
-              label="Mobile number or User ID"
-              placeholder="e.g., 9876543210 or student"
+              label="Mobile number"
+              placeholder="10-digit mobile number"
+              keyboardType="phone-pad"
               autoCapitalize="none"
-              keyboardType="default"
               value={mobile}
               onChangeText={setMobile}
             />
@@ -115,9 +113,7 @@ export default function StudentLogin() {
             />
 
             {error ? (
-              <Text style={styles.error} testID="student-login-error">
-                {error}
-              </Text>
+              <Text style={styles.error} testID="student-login-error">{error}</Text>
             ) : null}
 
             <Button
@@ -127,16 +123,6 @@ export default function StudentLogin() {
               loading={loading}
               style={{ marginTop: spacing.md }}
             />
-
-            <TouchableOpacity
-              testID="forgot-password-link"
-              onPress={() =>
-                setError("Forgot password is not available yet. Please contact admin.")
-              }
-              style={styles.linkRow}
-            >
-              <Text style={styles.linkSubtle}>Forgot password?</Text>
-            </TouchableOpacity>
           </View>
 
           <View style={styles.footer}>
@@ -148,51 +134,30 @@ export default function StudentLogin() {
               <Text style={styles.linkStrong}> Register as student</Text>
             </TouchableOpacity>
           </View>
-
-          <View style={styles.demoBox} testID="student-demo-hint">
-            <Text style={styles.demoTitle}>Demo accounts</Text>
-            <Text style={styles.demoLine}>Approved: student / student123</Text>
-            <Text style={styles.demoLine}>Pending: pending / pending123</Text>
-            <Text style={styles.demoLine}>Blocked: blocked / blocked123</Text>
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
-  container: { padding: spacing.lg, paddingBottom: spacing.xl },
-  back: { width: 36, height: 36, justifyContent: "center", marginBottom: spacing.md },
-  title: { ...typography.largeTitle, color: colors.textPrimary, marginBottom: 6 },
-  subtitle: { ...typography.callout, color: colors.textSecondary },
-  error: {
-    color: colors.danger,
-    ...typography.subhead,
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  linkRow: { alignItems: "center", marginTop: spacing.md },
-  linkSubtle: { ...typography.subhead, color: colors.textSecondary },
-  linkStrong: { ...typography.subhead, color: colors.primary, fontWeight: "600" },
-  footer: {
-    marginTop: spacing.lg,
-    flexDirection: "row",
-    justifyContent: "center",
-  },
-  footerText: { ...typography.subhead, color: colors.textSecondary },
-  demoBox: {
-    marginTop: spacing.xl,
-    backgroundColor: colors.primaryLight,
-    borderRadius: 16,
-    padding: spacing.md,
-  },
-  demoTitle: {
-    ...typography.footnote,
-    color: colors.primaryDark,
-    marginBottom: 6,
-    fontWeight: "700",
-  },
-  demoLine: { ...typography.caption, color: colors.primaryDark, marginTop: 2 },
-});
+const makeStyles = (c: ThemeColors) =>
+  StyleSheet.create({
+    safe: { flex: 1, backgroundColor: c.bg },
+    container: { padding: spacing.lg, paddingBottom: spacing.xl },
+    back: { width: 36, height: 36, justifyContent: "center", marginBottom: spacing.md },
+    title: { ...typography.largeTitle, color: c.textPrimary, marginBottom: 6 },
+    subtitle: { ...typography.callout, color: c.textSecondary },
+    error: {
+      color: c.danger,
+      ...typography.subhead,
+      marginTop: 4,
+      marginBottom: 4,
+    },
+    footer: {
+      marginTop: spacing.lg,
+      flexDirection: "row",
+      justifyContent: "center",
+    },
+    footerText: { ...typography.subhead, color: c.textSecondary },
+    linkStrong: { ...typography.subhead, color: c.primary, fontWeight: "600" },
+  });

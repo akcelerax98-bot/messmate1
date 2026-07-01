@@ -1,0 +1,35 @@
+{
+  "summary": "Backend regression re-run after config-only change that re-added `--tunnel` to the Expo supervisor command AND installed @expo/ngrok@^4.1.0 as devDependency. Full 51-test regression suite (33 iteration_8 email-OTP + 18 iteration_9 today/tomorrow) PASSED 100% in 179.58s. Preview URL healthy: GET https://meal-planning-hub-2.preview.emergentagent.com/api/ → 200 {app:'MessMate', status:'ok'}. Supervisor: backend RUNNING, expo RUNNING (uptime >3min, no restart loop), mongodb RUNNING. No backend regressions introduced by the supervisor/frontend config change — as expected (backend/server.py was not touched).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "startup", "issue": "Passlib DeprecationWarning: `crypt` module deprecated in Python 3.13. Cosmetic only; bcrypt hashing works and all 51 tests pass. Pre-existing, unrelated to this change."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8_email_otp.py",
+    "/app/backend/tests/test_iteration9_today_tomorrow.py",
+    "/app/test_reports/pytest/iteration_12.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "/etc/supervisor/conf.d/supervisord.conf: expo command is now `yarn expo start --tunnel --port 3000` — works because @expo/ngrok@^4.1.0 is present in /app/frontend/package.json devDependencies. Contrast with iteration_10 where --tunnel was added without the ngrok binary and Metro crash-looped.",
+    "Backend server.py unchanged from iteration_9/10/11 (still ~1968 lines — the >700-line split guideline still stands as prior tech-debt; out of scope for this iteration)."
+  ],
+  "updated_files": [
+    "/app/test_reports/pytest/iteration_12.xml — NEW (junit xml, 51 passed)",
+    "/app/test_reports/iteration_12.json — NEW"
+  ],
+  "success_rate": {"backend": "100% (51/51)", "frontend": "not tested (backend-only per review request)"},
+  "seed_data_creation": "None. Reused existing self-cleaning TEST_-prefixed suites.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 12 is a config-only verification of a tunnel restore. Change set: (a) devDependency @expo/ngrok@^4.1.0 added to /app/frontend/package.json; (b) supervisor expo command restored to `yarn expo start --tunnel --port 3000`. Backend was not touched. All 51 regression tests green. SMTP is live for OTP tests (real Gmail App Password) — consider OTP_DEV_MODE for CI to avoid mailbox pollution. Public URL env var is EXPO_PUBLIC_BACKEND_URL.",
+  "rca_of_issue": "No new issue in this iteration. Historical context: iteration_10 broke Metro by enabling --tunnel without @expo/ngrok binary → supervisor restart loop → K8s ingress 502. Iteration_11 reverted --tunnel to stabilize. Iteration_12 re-enables --tunnel now that @expo/ngrok is installed; supervisor status confirms Metro stays up and preview URL returns 200 for /api/. Backend regression suite unaffected."
+}

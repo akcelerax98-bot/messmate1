@@ -1,0 +1,35 @@
+{
+  "summary": "Backend regression suite executed after config-only revert of /etc/supervisor/conf.d/supervisord.conf (removed the previously-added --tunnel flag from the Expo start command). Full 51-test suite (33 iteration_8 email-OTP + 18 iteration_9 today/tomorrow) PASSED 100% in 189.99s. Preview URL is back to healthy: GET https://meal-planning-hub-2.preview.emergentagent.com/api/ → 200 {app:'MessMate', status:'ok'}; GET / → 200 (Metro serving); localhost:3000 → 200 (Metro process up, no more --tunnel/@expo/ngrok crash). Supervisor status: backend RUNNING, expo RUNNING, mongodb RUNNING. Confirmed the Cloudflare 502 root cause is fully resolved and no functional regression was introduced by the revert.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "startup", "issue": "Passlib DeprecationWarning: `crypt` module deprecated in Python 3.13. Cosmetic only; bcrypt hashing works and all 51 tests pass. Pre-existing, unrelated to this revert."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8_email_otp.py",
+    "/app/backend/tests/test_iteration9_today_tomorrow.py",
+    "/app/test_reports/pytest/iteration_11.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "/etc/supervisor/conf.d/supervisord.conf line 10 now reads `exec yarn expo start --port 3000` — the `--tunnel` flag has been correctly removed. Metro binds to :3000 as expected and the K8s ingress serves the preview URL without upstream errors.",
+    "Backend server.py is unchanged from iteration_9/10 (still 1968 lines — the >700-line guideline flag from prior iterations still stands but is out of scope here)."
+  ],
+  "updated_files": [
+    "/app/test_reports/pytest/iteration_11.xml — NEW (junit xml, 51 passed)",
+    "/app/test_reports/iteration_11.json — NEW"
+  ],
+  "success_rate": {"backend": "100% (51/51)", "frontend": "not tested (backend-only per review request)"},
+  "seed_data_creation": "None. Reused existing self-cleaning TEST_-prefixed suites.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 11 is a config-only revert verification. --tunnel flag removed from Expo supervisor command (was breaking startup because @expo/ngrok is not installed → Metro never bound to :3000 → K8s ingress returned Cloudflare 502 upstream). Now: supervisord starts `yarn expo start --port 3000` cleanly, Metro listens on 3000, preview URL returns 200 for both / and /api/. All 51 backend regression tests green. SMTP is live (Gmail App Password); each register test sends a real email — consider OTP_DEV_MODE for CI. Public URL env var is EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env.",
+  "rca_of_issue": "Original 502: previous config change added `--tunnel` to the Expo start command, but @expo/ngrok is not installed in this environment, so `yarn expo start --port 3000 --tunnel` exited non-zero → supervisor kept restarting expo → port 3000 never had a listener → K8s ingress upstream failed → Cloudflare returned 502. Mitigation: revert removed `--tunnel`. Verified fix: supervisorctl shows expo RUNNING for >1 minute, localhost:3000 = 200, public URL / and /api/ both = 200, full backend suite still 51/51 green. No code changes were needed — this was purely an infra/config regression fix."
+}

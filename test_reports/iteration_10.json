@@ -1,0 +1,30 @@
+{
+  "summary": "Backend regression suite executed after config-only supervisord.conf change (added --tunnel flag to Expo). All 51 existing backend tests (33 from iteration_8 email OTP + 18 from iteration_9 today/tomorrow) PASSED. Health endpoint GET /api/ returns {app:'MessMate', status:'ok'} on the public URL. Startup log 'MessMate API ready — SMTP email OTP active (smtp.gmail.com)' is present, confirming SMTP init. No functional regression introduced by the tunnel flag change (as expected since it only affects Expo frontend startup, not backend).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "startup", "issue": "Passlib 'error reading bcrypt version' warning appears in logs (bcrypt 4.x has no __about__ attr). Non-fatal — hashing works, all auth tests pass. Cosmetic only."},
+      {"endpoint": "push notifications", "issue": "EMERGENT_PUSH_KEY missing/invalid → 401 from integrations proxy. Push is skipped gracefully; not blocking. Pre-existing, unrelated to this change."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8_email_otp.py",
+    "/app/backend/tests/test_iteration9_today_tomorrow.py",
+    "/app/test_reports/pytest/iteration_10_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (51/51)", "frontend": "not tested (backend-only per request)"},
+  "seed_data_creation": "None — reused existing test suites which self-seed test data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Config-only change (added --tunnel to Expo start in /etc/supervisor/conf.d/supervisord.conf line 10) verified as non-regressive. Full backend suite (51 tests) green in 177s. Health endpoint and SMTP-init log confirmed. Frontend NOT tested per review request scope.",
+  "rca_of_issue": "N/A — no bug. Verification-only run confirming deployment_agent fix (adding --tunnel flag) did not break backend."
+}

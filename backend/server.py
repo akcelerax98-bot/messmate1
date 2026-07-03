@@ -362,6 +362,12 @@ async def get_user_by_id(uid: str) -> Optional[dict]:
     return await users_col.find_one({"id": uid}, {"_id": 0})
 
 
+SESSION_INVALIDATED_DETAIL = {
+    "code": "session_invalidated",
+    "message": "You've been signed out because this account was signed in on another device.",
+}
+
+
 async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -377,7 +383,22 @@ async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> dic
     user = await get_user_by_id(uid)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Single-device session enforcement.
+    token_sid = payload.get("sid")
+    active_sid = user.get("active_session_id")
+    if not token_sid or not active_sid or token_sid != active_sid:
+        raise HTTPException(status_code=401, detail=SESSION_INVALIDATED_DETAIL)
     return user
+
+
+async def rotate_session(user_id: str) -> str:
+    """Mint a new `active_session_id` for the user, invalidating other devices."""
+    sid = str(uuid.uuid4())
+    await users_col.update_one(
+        {"id": user_id},
+        {"$set": {"active_session_id": sid, "updated_at": now_iso()}},
+    )
+    return sid
 
 
 async def require_approved_student(u: dict = Depends(get_current_user)) -> dict:
@@ -757,7 +778,8 @@ async def verify_email(payload: VerifyEmailRequest):
         raise HTTPException(status_code=404, detail="Account not found")
     if user.get("email_verified"):
         # Re-issue access token rather than failing.
-        token = create_token({"sub": user["id"], "role": user["role"],
+        sid = await rotate_session(user["id"])
+        token = create_token({"sub": user["id"], "sid": sid, "role": user["role"],
                               "status": user["approval_status"]})
         return TokenResponse(access_token=token, user=to_public(user))
 
@@ -774,7 +796,8 @@ async def verify_email(payload: VerifyEmailRequest):
     )
     user["email_verified"] = True
     user["updated_at"] = now
-    token = create_token({"sub": user["id"], "role": user["role"],
+    sid = await rotate_session(user["id"])
+    token = create_token({"sub": user["id"], "sid": sid, "role": user["role"],
                           "status": user["approval_status"]})
     return TokenResponse(access_token=token, user=to_public(user))
 
@@ -795,7 +818,8 @@ async def login_email(payload: LoginRequest):
                 "email": email,
             },
         )
-    token = create_token({"sub": user["id"], "role": user["role"],
+    sid = await rotate_session(user["id"])
+    token = create_token({"sub": user["id"], "sid": sid, "role": user["role"],
                           "status": user["approval_status"]})
     return TokenResponse(access_token=token, user=to_public(user))
 
@@ -904,7 +928,8 @@ async def reset_password(payload: ResetPasswordRequest):
     )
     user["password_hash"] = new_hash
     user["updated_at"] = now
-    token = create_token({"sub": user["id"], "role": user["role"],
+    sid = await rotate_session(user["id"])
+    token = create_token({"sub": user["id"], "sid": sid, "role": user["role"],
                           "status": user["approval_status"]})
     return TokenResponse(access_token=token, user=to_public(user))
 

@@ -228,6 +228,39 @@ export class ApiError extends Error {
   }
 }
 
+// --- Session invalidation handling ---
+// AuthContext registers a handler here that fires when the server tells us the
+// current session was superseded (user signed in on another device).
+let sessionInvalidatedHandler: ((message: string) => void) | null = null;
+let sessionInvalidatedFiring = false;
+
+export function setSessionInvalidatedHandler(
+  h: ((message: string) => void) | null,
+) {
+  sessionInvalidatedHandler = h;
+}
+
+function maybeFireSessionInvalidated(status: number, data: any) {
+  if (status !== 401) return;
+  const detail = data && data.detail;
+  const code =
+    detail && typeof detail === "object" ? detail.code : undefined;
+  if (code !== "session_invalidated") return;
+  if (sessionInvalidatedFiring) return;
+  sessionInvalidatedFiring = true;
+  try {
+    const msg =
+      (detail && typeof detail === "object" && detail.message) ||
+      "You've been signed out because this account was signed in on another device.";
+    sessionInvalidatedHandler?.(msg);
+  } finally {
+    // Reset shortly so a future genuine event can fire again.
+    setTimeout(() => {
+      sessionInvalidatedFiring = false;
+    }, 1500);
+  }
+}
+
 async function request<T>(
   path: string,
   options: { method?: string; body?: any; token?: string | null } = {},
@@ -250,6 +283,7 @@ async function request<T>(
     let msg = `Request failed (${res.status})`;
     if (typeof detail === "string") msg = detail;
     else if (detail && typeof detail === "object" && detail.message) msg = detail.message;
+    maybeFireSessionInvalidated(res.status, data);
     throw new ApiError(msg, res.status, data);
   }
   return data as T;

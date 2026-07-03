@@ -10,8 +10,9 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { Alert } from "react-native";
 
-import { api, type TokenResponse, type User } from "@/src/api/client";
+import { api, setSessionInvalidatedHandler, type TokenResponse, type User } from "@/src/api/client";
 import { storage } from "@/src/utils/storage";
 
 const TOKEN_KEY = "messmate.jwt";
@@ -47,6 +48,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const parsed = JSON.parse(savedUserRaw as string) as User;
           setToken(savedToken as string);
           setUser(parsed);
+          // Verify the session with the backend. If it was invalidated (another
+          // device signed in), the api client's session-invalidated handler
+          // will fire and log us out.
+          try {
+            const fresh = await api.me(savedToken as string);
+            setUser(fresh);
+            await storage.setItem(USER_KEY, JSON.stringify(fresh));
+          } catch {
+            // ignore — handler above will log out if session_invalidated
+          }
         } catch {
           await storage.secureRemove(TOKEN_KEY);
           await storage.removeItem(USER_KEY);
@@ -78,6 +89,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setUser(null);
   }, []);
+
+  // Register a handler so the API client can auto-logout when the server tells
+  // us the session was superseded on another device.
+  useEffect(() => {
+    setSessionInvalidatedHandler((message) => {
+      // Fire-and-forget; we don't need to await the storage clears.
+      void logout();
+      Alert.alert("Signed out", message);
+    });
+    return () => setSessionInvalidatedHandler(null);
+  }, [logout]);
 
   const value = useMemo(
     () => ({ token, user, loading, setSession, loginEmail, logout }),

@@ -1,5 +1,5 @@
 {
-  "summary": "Backend regression re-run after config-only change that re-added `--tunnel` to the Expo supervisor command AND installed @expo/ngrok@^4.1.0 as devDependency. Full 51-test regression suite (33 iteration_8 email-OTP + 18 iteration_9 today/tomorrow) PASSED 100% in 179.58s. Preview URL healthy: GET https://meal-planning-hub-2.preview.emergentagent.com/api/ → 200 {app:'MessMate', status:'ok'}. Supervisor: backend RUNNING, expo RUNNING (uptime >3min, no restart loop), mongodb RUNNING. No backend regressions introduced by the supervisor/frontend config change — as expected (backend/server.py was not touched).",
+  "summary": "Backend regression re-run after config-only change that re-added `--tunnel` to the Expo supervisor command AND installed @expo/ngrok@^4.1.0 as devDependency. Full 51-test regression suite (33 iteration_8 email-OTP + 18 iteration_9 today/tomorrow) PASSED 100% in 179.58s. Preview URL healthy: GET https://repo-preview-86.preview.emergentagent.com/api/ → 200 {app:'MessMate', status:'ok'}. Supervisor: backend RUNNING, expo RUNNING (uptime >3min, no restart loop), mongodb RUNNING. No backend regressions introduced by the supervisor/frontend config change — as expected (backend/server.py was not touched).",
   "backend_issues": {
     "critical": [],
     "minor": [

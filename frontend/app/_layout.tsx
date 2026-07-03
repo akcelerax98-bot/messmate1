@@ -68,7 +68,11 @@ function RoutingShell() {
         <Stack.Screen name="(admin)" />
         <Stack.Screen
           name="notifications"
-          options={{ presentation: "modal", animation: "slide_from_bottom" }}
+          options={
+            Platform.OS === "web"
+              ? { animation: "fade" }
+              : { presentation: "modal", animation: "slide_from_bottom" }
+          }
         />
       </Stack>
     </>

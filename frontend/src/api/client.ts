@@ -557,6 +557,21 @@ export const api = {
       "/admin/notifications/default-template",
       { token },
     ),
+  adminUpdateNotification: (
+    token: string,
+    id: string,
+    body: { title?: string; body?: string; send_at?: string },
+  ) =>
+    request<any>(`/admin/notifications/${id}`, {
+      method: "PATCH",
+      body,
+      token,
+    }),
+  adminDeleteNotification: (token: string, id: string) =>
+    request<null>(`/admin/notifications/${id}`, {
+      method: "DELETE",
+      token,
+    }),
   adminMenuReminder: (token: string, custom_body?: string) =>
     request<any>("/admin/notifications/menu-reminder", {
       method: "POST",

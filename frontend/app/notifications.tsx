@@ -10,6 +10,7 @@ import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
@@ -102,6 +103,8 @@ export default function Notifications() {
   const [title, setTitle] = useState(DEFAULT_TITLE_FALLBACK);
   const [body, setBody] = useState(DEFAULT_BODY_FALLBACK);
   const [sending, setSending] = useState(false);
+  // When editing an existing scheduled notification, this holds its id.
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Scheduling state
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
@@ -185,33 +188,94 @@ export default function Notifications() {
     }
     setSending(true);
     try {
-      const payload: Parameters<typeof api.adminCreateNotification>[1] = {
-        title: title.trim(),
-        body: body.trim(),
-        audience: "all",
-        type: "announcement",
-      };
-      if (scheduleMode === "later") {
-        payload.send_at = sendAt.toISOString();
+      if (editingId) {
+        // Editing an existing scheduled item — PATCH it.
+        const patch: Parameters<typeof api.adminUpdateNotification>[2] = {
+          title: title.trim(),
+          body: body.trim(),
+        };
+        if (scheduleMode === "later") {
+          patch.send_at = sendAt.toISOString();
+        }
+        await api.adminUpdateNotification(token, editingId, patch);
+        setToast({ message: "Scheduled notification updated", variant: "success" });
+      } else {
+        const payload: Parameters<typeof api.adminCreateNotification>[1] = {
+          title: title.trim(),
+          body: body.trim(),
+          audience: "all",
+          type: "announcement",
+        };
+        if (scheduleMode === "later") {
+          payload.send_at = sendAt.toISOString();
+        }
+        await api.adminCreateNotification(token, payload);
+        setToast({
+          message:
+            scheduleMode === "later"
+              ? `Scheduled for ${formatDateTime(sendAt)}`
+              : "Announcement sent",
+          variant: "success",
+        });
       }
-      await api.adminCreateNotification(token, payload);
-      setToast({
-        message:
-          scheduleMode === "later"
-            ? `Scheduled for ${formatDateTime(sendAt)}`
-            : "Announcement sent",
-        variant: "success",
-      });
+      resetComposerState();
       setComposer(false);
-      // Reset schedule state (but keep the default template loaded)
-      setScheduleMode("now");
-      setSendAt(nowPlus(60));
       await load();
     } catch (e: any) {
       setToast({ message: e?.message || "Could not send", variant: "error" });
     } finally {
       setSending(false);
     }
+  };
+
+  const resetComposerState = useCallback(() => {
+    setEditingId(null);
+    setScheduleMode("now");
+    setSendAt(nowPlus(60));
+  }, []);
+
+  const startEditScheduled = (item: Item) => {
+    if (!isAdmin) return;
+    setEditingId(item.id);
+    setTitle(item.title);
+    setBody(item.body);
+    setScheduleMode("later");
+    if (item.send_at) {
+      const d = new Date(item.send_at);
+      // If the parsed date is in the past for any reason, push out to +60min.
+      setSendAt(d.getTime() > Date.now() + 60_000 ? d : nowPlus(60));
+    } else {
+      setSendAt(nowPlus(60));
+    }
+    setComposer(true);
+  };
+
+  const confirmCancelScheduled = (item: Item) => {
+    Alert.alert(
+      "Cancel scheduled notification?",
+      `"${item.title}" won't be sent. This can't be undone.`,
+      [
+        { text: "Keep it", style: "cancel" },
+        {
+          text: "Cancel it",
+          style: "destructive",
+          onPress: async () => {
+            if (!token) return;
+            try {
+              await api.adminDeleteNotification(token, item.id);
+              setItems((arr) => arr.filter((i) => i.id !== item.id));
+              setToast({ message: "Scheduled notification cancelled", variant: "success" });
+              if (editingId === item.id) {
+                resetComposerState();
+                setComposer(false);
+              }
+            } catch (e: any) {
+              setToast({ message: e?.message || "Could not cancel", variant: "error" });
+            }
+          },
+        },
+      ],
+    );
   };
 
   const resetToDefault = async () => {
@@ -308,7 +372,13 @@ export default function Notifications() {
 
               <TouchableOpacity
                 testID="notif-toggle-composer"
-                onPress={() => setComposer((v) => !v)}
+                onPress={() => {
+                  setComposer((v) => {
+                    const next = !v;
+                    if (!next) resetComposerState();
+                    return next;
+                  });
+                }}
                 style={[styles.linkRow, { borderTopColor: c.divider }]}
               >
                 <Feather
@@ -317,12 +387,24 @@ export default function Notifications() {
                   color={c.primary}
                 />
                 <Text style={[styles.linkText, { color: c.primary }]}>
-                  {composer ? "Hide composer" : "Compose a reminder to reduce food waste"}
+                  {composer
+                    ? editingId
+                      ? "Cancel editing"
+                      : "Hide composer"
+                    : "Compose a reminder to reduce food waste"}
                 </Text>
               </TouchableOpacity>
 
               {composer ? (
                 <View style={{ marginTop: 12 }}>
+                  {editingId ? (
+                    <View style={[styles.editingBanner, { backgroundColor: c.primaryTint }]}>
+                      <Feather name="edit-2" size={12} color={c.primary} />
+                      <Text style={[styles.editingBannerText, { color: c.primary }]}>
+                        Editing scheduled notification
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={styles.composerLabelRow}>
                     <Text style={[styles.fieldLabel, { color: c.textSecondary }]}>
                       Title
@@ -488,9 +570,13 @@ export default function Notifications() {
                   <Button
                     testID="notif-send-announcement"
                     label={
-                      scheduleMode === "later"
-                        ? `Schedule for ${scheduleSummary}`
-                        : "Send to all students now"
+                      editingId
+                        ? scheduleMode === "later"
+                          ? `Save & reschedule for ${scheduleSummary}`
+                          : "Save changes"
+                        : scheduleMode === "later"
+                          ? `Schedule for ${scheduleSummary}`
+                          : "Send to all students now"
                     }
                     onPress={sendAnnouncement}
                     loading={sending}
@@ -526,7 +612,8 @@ export default function Notifications() {
                     styles.notifCard,
                     {
                       backgroundColor: c.card,
-                      borderColor: c.border,
+                      borderColor: scheduledFuture ? c.primary : c.border,
+                      borderWidth: scheduledFuture ? 1.5 : 1,
                       opacity: !isAdmin && n.read ? 0.7 : 1,
                     },
                   ]}
@@ -581,6 +668,47 @@ export default function Notifications() {
                       <Text style={[styles.notifMeta, { color: c.textTertiary }]}>
                         {formatScheduledLabel(n)}
                       </Text>
+                      {scheduledFuture ? (
+                        <View style={styles.actionsRow}>
+                          <TouchableOpacity
+                            testID={`notif-edit-${n.id}`}
+                            onPress={() => startEditScheduled(n)}
+                            style={[
+                              styles.actionBtn,
+                              { backgroundColor: c.inputBg },
+                            ]}
+                          >
+                            <Feather name="edit-2" size={12} color={c.textPrimary} />
+                            <Text
+                              style={[styles.actionText, { color: c.textPrimary }]}
+                            >
+                              Edit
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            testID={`notif-cancel-${n.id}`}
+                            onPress={() => confirmCancelScheduled(n)}
+                            style={[
+                              styles.actionBtn,
+                              { backgroundColor: c.dangerTint || "#FEE2E2" },
+                            ]}
+                          >
+                            <Feather
+                              name="x-circle"
+                              size={12}
+                              color={c.danger || "#DC2626"}
+                            />
+                            <Text
+                              style={[
+                                styles.actionText,
+                                { color: c.danger || "#DC2626" },
+                              ]}
+                            >
+                              Cancel
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
                     </View>
                     {!isAdmin && !n.read ? (
                       <View style={[styles.dot, { backgroundColor: c.primary }]} />
@@ -727,4 +855,29 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   pillText: { ...typography.caption, fontWeight: "700", fontSize: 11 },
+  actionsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+  },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  actionText: { ...typography.caption, fontWeight: "700", fontSize: 12 },
+  editingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    alignSelf: "flex-start",
+    marginBottom: 10,
+  },
+  editingBannerText: { ...typography.caption, fontWeight: "700", fontSize: 12 },
 });

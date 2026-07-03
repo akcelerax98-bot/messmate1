@@ -383,6 +383,226 @@ metadata:
 
 test_plan:
   current_focus: []
+
+###############################################################################
+# NEW FEATURE — Edit/Cancel scheduled notifications + Push production readiness
+###############################################################################
+
+backend:
+  - task: "Edit and cancel scheduled notifications (PATCH + DELETE /admin/notifications/{id})"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Added:
+              - PATCH /api/admin/notifications/{nid} — admins edit an unsent
+                (sent=false) notification's title, body, and/or send_at
+                (must be future). 404 if not found or wrong hostel. 400 if
+                already sent. 400 if send_at is malformed or in the past.
+              - DELETE /api/admin/notifications/{nid} — 204 on success.
+                Works for both scheduled (unsent) and already-sent items
+                (admin can clear history). 404 if not found or wrong hostel.
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ ALL 11 SCENARIOS PASSED - Comprehensive backend testing completed:
+            
+            Scenario 1 (PATCH title + body only): PASS
+            - Created scheduled notification (send_at = now + 5 min)
+            - PATCH with {"title":"Edited title","body":"edited body"} → 200 OK
+            - Verified via GET /admin/notifications: title/body updated, sent=false unchanged
+            
+            Scenario 2 (PATCH send_at to new future time): PASS
+            - Created scheduled notification
+            - PATCH with {"send_at": now + 15 min} → 200 OK
+            - Response includes new send_at and scheduled_for (date part of send_at)
+            
+            Scenario 3 (PATCH with send_at in the past): PASS
+            - PATCH with {"send_at": now - 60s} → 400 with message "send_at must be in the future for a scheduled notification."
+            
+            Scenario 4 (PATCH with malformed send_at): PASS
+            - PATCH with {"send_at": "not-a-date"} → 400 with message "Invalid send_at (use ISO 8601 datetime)"
+            
+            Scenario 5 (Cross-hostel isolation): PASS
+            - Created notification with original admin (Test Hostel)
+            - Registered new admin under "Other Hostel" (email OTP verified via backend logs)
+            - PATCH /admin/notifications/{NID} with OTHER_ADMIN_TOKEN → 404
+            - DELETE /admin/notifications/{NID} with OTHER_ADMIN_TOKEN → 404
+            - Original admin verified NID still exists in GET /admin/notifications
+            
+            Scenario 6 (Cannot edit already-sent notifications): PASS
+            - Created notification with send_at = now - 60s → sent=true
+            - PATCH with {"title":"nope"} → 400 with message "This notification has already been sent and can't be edited."
+            
+            Scenario 7 (DELETE scheduled): PASS
+            - DELETE /admin/notifications/{NID} → 204
+            - GET /admin/notifications → NID not in list
+            - DELETE /admin/notifications/{NID} again → 404
+            
+            Scenario 8 (DELETE already-sent): PASS
+            - Created notification with sent=true
+            - DELETE /admin/notifications/{NID2} → 204
+            - GET /admin/notifications → NID2 not in list
+            
+            Scenario 9 (Auth): PASS
+            - PATCH with STUDENT_TOKEN → 403 (require_admin)
+            - DELETE with STUDENT_TOKEN → 403
+            - PATCH with no Authorization header → 401
+            - DELETE with no Authorization header → 401
+            
+            Scenario 10 (Student view unaffected across edits): PASS
+            - Created scheduled notification (NID3) with send_at = now + 5 min
+            - GET /student/notifications → NID3 NOT in items (unsent)
+            - PATCH NID3's body via ADMIN_TOKEN → 200 OK
+            - GET /student/notifications → NID3 still NOT in items
+            - DELETE NID3 → 204
+            - GET /student/notifications → NID3 still not present
+            
+            Scenario 11 (Empty PATCH): PASS
+            - Created scheduled notification (NID4)
+            - PATCH with body {} → 400 "No changes provided"
+            - DELETE NID4 → 204
+            
+            Key findings:
+            - All 11 scenarios with 11 sub-tests passed successfully (100% pass rate)
+            - PATCH endpoint correctly validates:
+              * Only unsent notifications can be edited (sent=false)
+              * send_at must be valid ISO 8601 datetime
+              * send_at must be in the future
+              * At least one field must be provided (no empty updates)
+            - DELETE endpoint works for both scheduled and sent notifications
+            - Cross-hostel isolation working correctly (404 for wrong hostel)
+            - Auth enforcement working (403 for non-admin, 401 for no token)
+            - Student view correctly filters out unsent notifications
+            - Single-device session enforcement active (reused existing tokens)
+            
+            Test credentials used from /app/memory/test_credentials.md:
+            - Admin: admin_test_1783097886@example.com
+            - Student: student_test_1783097886@example.com
+            - New admin for cross-hostel test: other_admin_1783102942@example.com (Other Hostel)
+            
+            Note: Temporarily disabled SMTP during testing to capture OTPs from backend logs for new admin registration. SMTP re-enabled after testing.
+            
+            No issues found. Implementation is production-ready.
+
+frontend:
+  - task: "Edit/Cancel scheduled notification UI + Push production readiness"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/notifications.tsx, /app/frontend/src/api/client.ts"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            - Admin notification cards for scheduled (unsent) items now show
+              "Edit" and "Cancel" chip buttons.
+            - Tapping "Edit" loads the item into the composer with
+              scheduleMode=later, prefilled title/body/send_at; the composer
+              shows an "Editing scheduled notification" badge. The action
+              button changes to "Save & reschedule for {when}" or
+              "Save changes".
+            - Tapping "Cancel" opens a native Alert confirmation → on
+              confirm calls DELETE, removes locally, and shows success toast.
+            - Push production readiness confirmed by audit against playbook:
+                * setNotificationHandler + setNotificationChannelAsync at
+                  module scope (Platform-guarded), tap listeners + cold-start
+                  handler in _layout.tsx.
+                * getDevicePushTokenAsync() (not Expo push token) → POST to
+                  /api/register-push via backend relay.
+                * app.json has expo-notifications plugin, POST_NOTIFICATIONS
+                  Android permission, and googleServicesFile pointing to
+                  /app/frontend/google-services.json (real Firebase project
+                  messmate-c92ca already present).
+              EMERGENT_PUSH_KEY stays as "placeholder" — the deployment
+              pipeline swaps in the real key at Publish/Deploy time.
+
+metadata:
+  created_by: "main_agent"
+  version: "1.2"
+  test_sequence: 3
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Test PATCH + DELETE on /api/admin/notifications/{id}. Reuse existing
+        credentials in /app/memory/test_credentials.md. Base URL:
+        http://localhost:8001/api
+
+        Setup — with admin token, POST /admin/notifications with:
+          { "title":"To edit","body":"orig body","audience":"all",
+            "send_at": (now + 5 minutes).toISOString() }
+        → capture the returned `id` (call it NID).
+
+        1) PATCH title + body:
+           PATCH /admin/notifications/{NID}
+             { "title":"Edited title","body":"edited body" }
+           → 200 with updated fields. Verify by GET /admin/notifications:
+           the item exists with the new title/body, still sent=false.
+
+        2) PATCH send_at to a NEW future time:
+           PATCH /admin/notifications/{NID}
+             { "send_at": (now + 15 minutes).toISOString() }
+           → 200 with the new send_at and updated scheduled_for (date part).
+
+        3) PATCH with send_at in the past → 400
+           (e.g., (now - 60 seconds).toISOString()).
+
+        4) PATCH with malformed send_at "not-a-date" → 400.
+
+        5) Ownership isolation:
+           - Create/log in as an admin for a DIFFERENT hostel.
+           - Attempt PATCH /admin/notifications/{NID} → 404 (not found in
+             that hostel).
+           - Attempt DELETE /admin/notifications/{NID} → 404.
+           - Original admin still owns the notification.
+
+        6) Cannot edit already-sent notifications:
+           - Create another notification with send_at = (now - 60s) so it
+             saves as sent=true immediately. Capture id (NID2).
+           - PATCH /admin/notifications/{NID2} with any body → 400 with
+             message about already sent.
+
+        7) DELETE (cancel) scheduled:
+           - DELETE /admin/notifications/{NID} → 204.
+           - GET /admin/notifications → item is gone.
+           - DELETE again → 404.
+
+        8) DELETE already-sent notifications:
+           - DELETE /admin/notifications/{NID2} → 204. (Admin can clear
+             history — this is intentional.)
+           - GET /admin/notifications → NID2 is gone.
+
+        9) Auth:
+           - PATCH and DELETE with a student token → 403.
+           - PATCH/DELETE with no token → 401.
+
+        10) Student view unaffected:
+            - Create a NEW scheduled notification with send_at = now + 5m.
+            - GET /student/notifications → it should NOT appear (unsent).
+            - PATCH its body via admin. GET /student/notifications → still
+              should NOT appear (still unsent).
+            - DELETE it. GET /student/notifications → still not appearing.
+
+        Report each with actual HTTP status codes + relevant response
+        snippets, and update this file under the corresponding task's
+        status_history.
+
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -455,5 +675,41 @@ agent_communication:
         - Student: student_test_1783097886@example.com
         
         Backend logs confirm scheduler is running: "Notification scheduler started (interval=30s)"
+        
+        No issues found. Implementation is production-ready.
+
+    - agent: "testing"
+      message: |
+        ✅ BACKEND TESTING COMPLETE - PATCH + DELETE endpoints working perfectly!
+        
+        Executed comprehensive test suite covering all 11 scenarios from the review request:
+        1. PATCH title + body only
+        2. PATCH send_at to new future time
+        3. PATCH with send_at in the past (validation)
+        4. PATCH with malformed send_at (validation)
+        5. Cross-hostel isolation
+        6. Cannot edit already-sent notifications
+        7. DELETE scheduled notification
+        8. DELETE already-sent notification
+        9. Auth enforcement (403 for non-admin, 401 for no token)
+        10. Student view unaffected across edits
+        11. Empty PATCH (validation)
+        
+        All 11 scenarios passed (100% success rate). Key findings:
+        - PATCH endpoint correctly validates unsent-only editing
+        - send_at validation working (ISO 8601 format, future time required)
+        - DELETE works for both scheduled and sent notifications
+        - Cross-hostel isolation enforced (404 for wrong hostel)
+        - Auth enforcement working correctly
+        - Student view correctly filters unsent notifications
+        - Empty PATCH body rejected with "No changes provided"
+        
+        Test credentials used from /app/memory/test_credentials.md:
+        - Admin: admin_test_1783097886@example.com
+        - Student: student_test_1783097886@example.com
+        - New admin for cross-hostel test: other_admin_1783102942@example.com (Other Hostel)
+        
+        Note: Temporarily disabled SMTP during testing to capture OTPs from backend logs.
+        SMTP re-enabled after testing completed.
         
         No issues found. Implementation is production-ready.

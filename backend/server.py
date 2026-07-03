@@ -1315,6 +1315,73 @@ async def admin_create_notification(
     return _project_notif(doc)
 
 
+class NotificationUpdate(BaseModel):
+    """Editable fields for a scheduled (not-yet-sent) notification."""
+    title: Optional[str] = Field(default=None, min_length=1, max_length=140)
+    body: Optional[str] = Field(default=None, min_length=1, max_length=600)
+    send_at: Optional[str] = None  # ISO datetime — new fire time (must be in the future)
+
+
+@api.patch("/admin/notifications/{nid}")
+async def admin_update_notification(
+    nid: str,
+    payload: NotificationUpdate,
+    u: dict = Depends(require_admin),
+):
+    """Edit a scheduled (unsent) notification. Sent notifications cannot be edited."""
+    doc = await notifications_col.find_one(
+        {"id": nid, "hostel": hostel_of(u)}, {"_id": 0}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    if doc.get("sent") is True:
+        raise HTTPException(
+            status_code=400,
+            detail="This notification has already been sent and can't be edited.",
+        )
+    updates: dict = {}
+    if payload.title is not None:
+        updates["title"] = payload.title.strip()
+    if payload.body is not None:
+        updates["body"] = payload.body.strip()
+    if payload.send_at is not None:
+        try:
+            raw = payload.send_at.strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            new_dt = datetime.fromisoformat(raw)
+            if new_dt.tzinfo is None:
+                new_dt = new_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid send_at (use ISO 8601 datetime)")
+        if new_dt <= datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=400,
+                detail="send_at must be in the future for a scheduled notification.",
+            )
+        updates["send_at"] = new_dt.isoformat()
+        updates["scheduled_for"] = new_dt.date().isoformat()
+    if not updates:
+        raise HTTPException(status_code=400, detail="No changes provided")
+    updates["updated_at"] = now_iso()
+    await notifications_col.update_one({"id": nid}, {"$set": updates})
+    doc.update(updates)
+    return _project_notif(doc)
+
+
+@api.delete("/admin/notifications/{nid}", status_code=204)
+async def admin_delete_notification(nid: str, u: dict = Depends(require_admin)):
+    """Cancel a scheduled (unsent) notification. Sent ones are also removable
+    from the admin history."""
+    doc = await notifications_col.find_one(
+        {"id": nid, "hostel": hostel_of(u)}, {"_id": 0, "id": 1, "sent": 1}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    await notifications_col.delete_one({"id": nid, "hostel": hostel_of(u)})
+    return None
+
+
 async def _recipients_for(
     admin: dict,
     audience: str,

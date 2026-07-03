@@ -1,8 +1,13 @@
-// Notifications screen — shared between roles (modal route)
+// Notifications screen — shared between roles (modal route).
+// - Students see notifications for their hostel (scheduled ones appear only after they've been sent).
+// - Admins can compose a notification with optional date/time scheduling.
 
+import DateTimePicker, {
+  type DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -29,9 +34,59 @@ type Item = {
   body: string;
   type: string;
   scheduled_for: string;
+  send_at?: string | null;
+  sent?: boolean;
+  sent_at?: string | null;
   created_at: string;
   read?: boolean;
 };
+
+type ToastState = {
+  message: string;
+  variant: "success" | "error" | "info";
+} | null;
+
+const DEFAULT_TITLE_FALLBACK = "Help reduce food waste — mark your meals";
+const DEFAULT_BODY_FALLBACK =
+  "Hi! Please open MessMate and mark whether you'll be eating today's meals and pick the items you'd like. This helps the mess cook the right quantity and cut down on food waste. It only takes a few seconds — thank you for participating!";
+
+// Add a small buffer so "now" doesn't fail with "past send_at" server-side.
+function nowPlus(minutes: number) {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() + minutes);
+  return d;
+}
+
+function formatDateTime(d: Date): string {
+  try {
+    return d.toLocaleString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return d.toISOString();
+  }
+}
+
+function formatScheduledLabel(item: Item): string {
+  if (item.send_at) {
+    try {
+      return `For ${new Date(item.send_at).toLocaleString(undefined, {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        hour: "numeric",
+        minute: "2-digit",
+      })}`;
+    } catch {
+      /* noop */
+    }
+  }
+  return `For ${item.scheduled_for}`;
+}
 
 export default function Notifications() {
   const { c } = useTheme();
@@ -41,25 +96,28 @@ export default function Notifications() {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [toast, setToast] = useState<{
-    message: string;
-    variant: "success" | "error" | "info";
-  } | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
 
   const [composer, setComposer] = useState(false);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
+  const [title, setTitle] = useState(DEFAULT_TITLE_FALLBACK);
+  const [body, setBody] = useState(DEFAULT_BODY_FALLBACK);
   const [sending, setSending] = useState(false);
+
+  // Scheduling state
+  const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
+  const [sendAt, setSendAt] = useState<Date>(() => nowPlus(60)); // default: 1h from now
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
       if (isAdmin) {
         const res = await api.adminNotifications(token);
-        setItems(res.items);
+        setItems(res.items as Item[]);
       } else {
         const res = await api.studentNotifications(token);
-        setItems(res.items);
+        setItems(res.items as Item[]);
       }
     } catch (e: any) {
       setToast({ message: e?.message || "Failed to load", variant: "error" });
@@ -72,6 +130,20 @@ export default function Notifications() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Load default template from backend (falls back to constants if the request fails).
+  useEffect(() => {
+    if (!token || !isAdmin) return;
+    (async () => {
+      try {
+        const t = await api.adminNotificationDefaultTemplate(token);
+        setTitle(t.title);
+        setBody(t.body);
+      } catch {
+        /* keep fallback */
+      }
+    })();
+  }, [token, isAdmin]);
 
   const markRead = async (id: string) => {
     if (!token || isAdmin) return;
@@ -102,18 +174,38 @@ export default function Notifications() {
       setToast({ message: "Title and message required", variant: "info" });
       return;
     }
+    if (scheduleMode === "later") {
+      if (sendAt.getTime() <= Date.now() + 15_000) {
+        setToast({
+          message: "Please pick a time at least a minute in the future",
+          variant: "info",
+        });
+        return;
+      }
+    }
     setSending(true);
     try {
-      await api.adminCreateNotification(token, {
+      const payload: Parameters<typeof api.adminCreateNotification>[1] = {
         title: title.trim(),
         body: body.trim(),
         audience: "all",
         type: "announcement",
+      };
+      if (scheduleMode === "later") {
+        payload.send_at = sendAt.toISOString();
+      }
+      await api.adminCreateNotification(token, payload);
+      setToast({
+        message:
+          scheduleMode === "later"
+            ? `Scheduled for ${formatDateTime(sendAt)}`
+            : "Announcement sent",
+        variant: "success",
       });
-      setToast({ message: "Announcement sent", variant: "success" });
-      setTitle("");
-      setBody("");
       setComposer(false);
+      // Reset schedule state (but keep the default template loaded)
+      setScheduleMode("now");
+      setSendAt(nowPlus(60));
       await load();
     } catch (e: any) {
       setToast({ message: e?.message || "Could not send", variant: "error" });
@@ -121,6 +213,43 @@ export default function Notifications() {
       setSending(false);
     }
   };
+
+  const resetToDefault = async () => {
+    if (!token) return;
+    try {
+      const t = await api.adminNotificationDefaultTemplate(token);
+      setTitle(t.title);
+      setBody(t.body);
+      setToast({ message: "Restored default text", variant: "info" });
+    } catch {
+      setTitle(DEFAULT_TITLE_FALLBACK);
+      setBody(DEFAULT_BODY_FALLBACK);
+    }
+  };
+
+  const onChangeDate = (event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS !== "ios") setShowDatePicker(false);
+    if (event.type === "dismissed" || !selected) return;
+    // Preserve time, replace date parts
+    const next = new Date(sendAt);
+    next.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+    setSendAt(next);
+  };
+
+  const onChangeTime = (event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS !== "ios") setShowTimePicker(false);
+    if (event.type === "dismissed" || !selected) return;
+    const next = new Date(sendAt);
+    next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+    setSendAt(next);
+  };
+
+  const scheduleSummary = useMemo(() => formatDateTime(sendAt), [sendAt]);
+  const composerIsClean = useMemo(
+    () =>
+      title.trim() === DEFAULT_TITLE_FALLBACK && body.trim() === DEFAULT_BODY_FALLBACK,
+    [title, body],
+  );
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.bg }]} edges={["top", "bottom"]}>
@@ -165,35 +294,71 @@ export default function Notifications() {
                 Send notifications
               </Text>
               <Text style={[styles.cardHelp, { color: c.textSecondary }]}>
-                Hosted in-app. Real push will fire on real devices after deploy.
+                Broadcasts to every student in your hostel. Students receive a push
+                on their phone and can view all past messages here.
               </Text>
+
               <Button
                 testID="notif-menu-reminder"
                 label={sending ? "Sending..." : "Send tomorrow's menu reminder"}
                 onPress={sendMenuReminder}
                 loading={sending}
-                style={{ marginTop: 10 }}
+                style={{ marginTop: 12 }}
               />
+
               <TouchableOpacity
                 testID="notif-toggle-composer"
                 onPress={() => setComposer((v) => !v)}
                 style={[styles.linkRow, { borderTopColor: c.divider }]}
               >
-                <Feather name="edit-3" size={16} color={c.primary} />
+                <Feather
+                  name={composer ? "chevron-up" : "edit-3"}
+                  size={16}
+                  color={c.primary}
+                />
                 <Text style={[styles.linkText, { color: c.primary }]}>
-                  {composer ? "Cancel announcement" : "Compose custom announcement"}
+                  {composer ? "Hide composer" : "Compose a reminder to reduce food waste"}
                 </Text>
               </TouchableOpacity>
+
               {composer ? (
-                <View style={{ marginTop: 10 }}>
+                <View style={{ marginTop: 12 }}>
+                  <View style={styles.composerLabelRow}>
+                    <Text style={[styles.fieldLabel, { color: c.textSecondary }]}>
+                      Title
+                    </Text>
+                    {!composerIsClean ? (
+                      <TouchableOpacity
+                        testID="notif-reset-default"
+                        onPress={resetToDefault}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Text style={[styles.resetLink, { color: c.primary }]}>
+                          Reset to default
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
                   <TextInput
                     testID="notif-title-input"
-                    placeholder="Title"
+                    placeholder="Notification title"
                     placeholderTextColor={c.textSecondary}
                     value={title}
                     onChangeText={setTitle}
-                    style={[styles.input, { backgroundColor: c.inputBg, color: c.textPrimary }]}
+                    style={[
+                      styles.input,
+                      { backgroundColor: c.inputBg, color: c.textPrimary },
+                    ]}
                   />
+
+                  <Text
+                    style={[
+                      styles.fieldLabel,
+                      { color: c.textSecondary, marginTop: 12 },
+                    ]}
+                  >
+                    Message
+                  </Text>
                   <TextInput
                     testID="notif-body-input"
                     placeholder="Message"
@@ -203,15 +368,133 @@ export default function Notifications() {
                     multiline
                     style={[
                       styles.input,
-                      { backgroundColor: c.inputBg, color: c.textPrimary, minHeight: 80, marginTop: 8 },
+                      {
+                        backgroundColor: c.inputBg,
+                        color: c.textPrimary,
+                        minHeight: 110,
+                        textAlignVertical: "top",
+                      },
                     ]}
                   />
+
+                  <Text
+                    style={[
+                      styles.fieldLabel,
+                      { color: c.textSecondary, marginTop: 16 },
+                    ]}
+                  >
+                    Delivery
+                  </Text>
+                  <View style={styles.segment}>
+                    {(["now", "later"] as const).map((opt) => {
+                      const active = scheduleMode === opt;
+                      return (
+                        <TouchableOpacity
+                          key={opt}
+                          testID={`notif-schedule-${opt}`}
+                          activeOpacity={0.85}
+                          onPress={() => setScheduleMode(opt)}
+                          style={[
+                            styles.segmentBtn,
+                            {
+                              backgroundColor: active ? c.card : "transparent",
+                              borderColor: active ? c.primary : "transparent",
+                            },
+                          ]}
+                        >
+                          <Feather
+                            name={opt === "now" ? "send" : "clock"}
+                            size={14}
+                            color={active ? c.primary : c.textSecondary}
+                          />
+                          <Text
+                            style={[
+                              styles.segmentLabel,
+                              { color: active ? c.textPrimary : c.textSecondary },
+                            ]}
+                          >
+                            {opt === "now" ? "Send now" : "Schedule for later"}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {scheduleMode === "later" ? (
+                    <View style={styles.schedulePickerRow}>
+                      <TouchableOpacity
+                        testID="notif-pick-date"
+                        activeOpacity={0.85}
+                        onPress={() => setShowDatePicker(true)}
+                        style={[
+                          styles.pickerBtn,
+                          { backgroundColor: c.inputBg, borderColor: c.border },
+                        ]}
+                      >
+                        <Feather name="calendar" size={14} color={c.primary} />
+                        <Text style={[styles.pickerText, { color: c.textPrimary }]}>
+                          {sendAt.toLocaleDateString(undefined, {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        testID="notif-pick-time"
+                        activeOpacity={0.85}
+                        onPress={() => setShowTimePicker(true)}
+                        style={[
+                          styles.pickerBtn,
+                          { backgroundColor: c.inputBg, borderColor: c.border },
+                        ]}
+                      >
+                        <Feather name="clock" size={14} color={c.primary} />
+                        <Text style={[styles.pickerText, { color: c.textPrimary }]}>
+                          {sendAt.toLocaleTimeString(undefined, {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+
+                  {scheduleMode === "later" ? (
+                    <Text style={[styles.scheduleHint, { color: c.textSecondary }]}>
+                      Students will receive it on {scheduleSummary}.
+                    </Text>
+                  ) : null}
+
+                  {showDatePicker ? (
+                    <DateTimePicker
+                      testID="notif-date-picker"
+                      value={sendAt}
+                      mode="date"
+                      minimumDate={new Date()}
+                      onChange={onChangeDate}
+                    />
+                  ) : null}
+                  {showTimePicker ? (
+                    <DateTimePicker
+                      testID="notif-time-picker"
+                      value={sendAt}
+                      mode="time"
+                      is24Hour={false}
+                      onChange={onChangeTime}
+                    />
+                  ) : null}
+
                   <Button
                     testID="notif-send-announcement"
-                    label="Send to all students"
+                    label={
+                      scheduleMode === "later"
+                        ? `Schedule for ${scheduleSummary}`
+                        : "Send to all students now"
+                    }
                     onPress={sendAnnouncement}
                     loading={sending}
-                    style={{ marginTop: 10 }}
+                    style={{ marginTop: 14 }}
                   />
                 </View>
               ) : null}
@@ -225,66 +508,87 @@ export default function Notifications() {
           ) : items.length === 0 ? (
             <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
               <Text style={[styles.empty, { color: c.textSecondary }]}>
-                No notifications yet.
+                {isAdmin
+                  ? "No notifications sent yet."
+                  : "No notifications yet. You'll see updates here when the admin sends them."}
               </Text>
             </View>
           ) : (
-            items.map((n) => (
-              <TouchableOpacity
-                key={n.id}
-                testID={`notif-item-${n.id}`}
-                activeOpacity={isAdmin ? 1 : 0.85}
-                onPress={() => !isAdmin && !n.read && markRead(n.id)}
-                style={[
-                  styles.notifCard,
-                  {
-                    backgroundColor: c.card,
-                    borderColor: c.border,
-                    opacity: !isAdmin && n.read ? 0.7 : 1,
-                  },
-                ]}
-              >
-                <View style={styles.notifRow}>
-                  <View
-                    style={[
-                      styles.notifBadge,
-                      {
-                        backgroundColor:
+            items.map((n) => {
+              const scheduledFuture = isAdmin && n.sent === false;
+              return (
+                <TouchableOpacity
+                  key={n.id}
+                  testID={`notif-item-${n.id}`}
+                  activeOpacity={isAdmin ? 1 : 0.85}
+                  onPress={() => !isAdmin && !n.read && markRead(n.id)}
+                  style={[
+                    styles.notifCard,
+                    {
+                      backgroundColor: c.card,
+                      borderColor: c.border,
+                      opacity: !isAdmin && n.read ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <View style={styles.notifRow}>
+                    <View
+                      style={[
+                        styles.notifBadge,
+                        {
+                          backgroundColor:
+                            n.type === "menu_reminder" ? c.primaryTint : c.inputBg,
+                        },
+                      ]}
+                    >
+                      <Feather
+                        name={
                           n.type === "menu_reminder"
-                            ? c.primaryTint
-                            : c.inputBg,
-                      },
-                    ]}
-                  >
-                    <Feather
-                      name={
-                        n.type === "menu_reminder"
-                          ? "calendar"
-                          : n.type === "system"
-                            ? "info"
-                            : "bell"
-                      }
-                      size={16}
-                      color={n.type === "menu_reminder" ? c.primary : c.textSecondary}
-                    />
+                            ? "calendar"
+                            : n.type === "system"
+                              ? "info"
+                              : "bell"
+                        }
+                        size={16}
+                        color={n.type === "menu_reminder" ? c.primary : c.textSecondary}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.notifTitleRow}>
+                        <Text
+                          style={[styles.notifTitle, { color: c.textPrimary }]}
+                          numberOfLines={2}
+                        >
+                          {n.title}
+                        </Text>
+                        {scheduledFuture ? (
+                          <View
+                            style={[
+                              styles.pill,
+                              { backgroundColor: c.primaryTint },
+                            ]}
+                          >
+                            <Feather name="clock" size={10} color={c.primary} />
+                            <Text style={[styles.pillText, { color: c.primary }]}>
+                              Scheduled
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={[styles.notifBody, { color: c.textSecondary }]}>
+                        {n.body}
+                      </Text>
+                      <Text style={[styles.notifMeta, { color: c.textTertiary }]}>
+                        {formatScheduledLabel(n)}
+                      </Text>
+                    </View>
+                    {!isAdmin && !n.read ? (
+                      <View style={[styles.dot, { backgroundColor: c.primary }]} />
+                    ) : null}
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.notifTitle, { color: c.textPrimary }]}>
-                      {n.title}
-                    </Text>
-                    <Text style={[styles.notifBody, { color: c.textSecondary }]}>
-                      {n.body}
-                    </Text>
-                    <Text style={[styles.notifMeta, { color: c.textTertiary }]}>
-                      For {n.scheduled_for}
-                    </Text>
-                  </View>
-                  {!isAdmin && !n.read ? (
-                    <View style={[styles.dot, { backgroundColor: c.primary }]} />
-                  ) : null}
-                </View>
-              </TouchableOpacity>
-            ))
+                </TouchableOpacity>
+              );
+            })
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -318,7 +622,7 @@ const styles = StyleSheet.create({
     ...shadow.card,
   },
   cardTitle: { ...typography.title2 },
-  cardHelp: { ...typography.caption, marginTop: 4 },
+  cardHelp: { ...typography.caption, marginTop: 6, lineHeight: 18 },
   linkRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -326,15 +630,67 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 10,
     borderTopWidth: 1,
-    marginTop: 8,
+    marginTop: 12,
   },
   linkText: { ...typography.subhead, fontWeight: "600" },
+  fieldLabel: {
+    ...typography.footnote,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
+  composerLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  resetLink: {
+    ...typography.footnote,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
   input: {
     borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
   },
+  segment: {
+    flexDirection: "row",
+    backgroundColor: "rgba(0,0,0,0.04)",
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+  },
+  segmentBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  segmentLabel: { ...typography.footnote, fontWeight: "700" },
+  schedulePickerRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+  pickerBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  pickerText: { ...typography.subhead, fontWeight: "600" },
+  scheduleHint: { ...typography.caption, marginTop: 8, fontStyle: "italic" },
   centerWrap: { paddingVertical: 60, alignItems: "center" },
   empty: { ...typography.subhead, textAlign: "center" },
   notifCard: {
@@ -352,8 +708,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  notifTitle: { ...typography.headline },
+  notifTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  notifTitle: { ...typography.headline, flexShrink: 1 },
   notifBody: { ...typography.subhead, marginTop: 4, lineHeight: 20 },
   notifMeta: { ...typography.caption, marginTop: 6 },
   dot: { width: 10, height: 10, borderRadius: 5, marginTop: 6 },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  pillText: { ...typography.caption, fontWeight: "700", fontSize: 11 },
 });

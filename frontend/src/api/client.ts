@@ -508,6 +508,9 @@ export const api = {
         body: string;
         type: string;
         scheduled_for: string;
+        send_at?: string | null;
+        sent?: boolean;
+        sent_at?: string | null;
         created_at: string;
         read: boolean;
       }[];
@@ -526,6 +529,9 @@ export const api = {
         body: string;
         type: string;
         scheduled_for: string;
+        send_at?: string | null;
+        sent?: boolean;
+        sent_at?: string | null;
         created_at: string;
       }[];
     }>("/admin/notifications", { token }),
@@ -538,6 +544,7 @@ export const api = {
       recipient_id?: string;
       type?: "announcement" | "menu_reminder" | "system";
       scheduled_for?: string;
+      send_at?: string; // ISO datetime — when to actually fire
     },
   ) =>
     request<any>("/admin/notifications", {
@@ -545,6 +552,11 @@ export const api = {
       body,
       token,
     }),
+  adminNotificationDefaultTemplate: (token: string) =>
+    request<{ title: string; body: string }>(
+      "/admin/notifications/default-template",
+      { token },
+    ),
   adminMenuReminder: (token: string, custom_body?: string) =>
     request<any>("/admin/notifications/menu-reminder", {
       method: "POST",

@@ -269,12 +269,23 @@ class NotificationCreate(BaseModel):
     audience: Literal["all", "student"] = "all"
     recipient_id: Optional[str] = None
     type: Literal["announcement", "menu_reminder", "system"] = "announcement"
-    scheduled_for: Optional[str] = None  # ISO date (when it should "fire")
+    scheduled_for: Optional[str] = None  # ISO date (legacy label — display only)
+    send_at: Optional[str] = None  # ISO datetime — when to actually fire the push
 
 
 class MenuReminderCreate(BaseModel):
     """Schedules tomorrow's menu reminder for all students in the hostel."""
     custom_body: Optional[str] = None
+
+
+# Default reminder text — used to pre-fill the admin composer.
+DEFAULT_REMINDER_TITLE = "Help reduce food waste — mark your meals"
+DEFAULT_REMINDER_BODY = (
+    "Hi! Please open MessMate and mark whether you'll be eating today's meals "
+    "and pick the items you'd like. This helps the mess cook the right quantity "
+    "and cut down on food waste. It only takes a few seconds — thank you for "
+    "participating!"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1188,12 +1199,24 @@ def _project_notif(doc: dict, viewer_id: Optional[str] = None) -> dict:
         "type": doc.get("type", "announcement"),
         "audience": doc.get("audience", "all"),
         "scheduled_for": doc.get("scheduled_for"),
+        "send_at": doc.get("send_at"),
+        "sent": bool(doc.get("sent", True)),
+        "sent_at": doc.get("sent_at"),
         "created_at": doc["created_at"],
         "read_by_count": len(doc.get("read_by", [])),
     }
     if viewer_id is not None:
         out["read"] = viewer_id in (doc.get("read_by") or [])
     return out
+
+
+@api.get("/admin/notifications/default-template")
+async def admin_notification_default_template(_: dict = Depends(require_admin)):
+    """Returns the suggested default text for the food-waste reminder."""
+    return {
+        "title": DEFAULT_REMINDER_TITLE,
+        "body": DEFAULT_REMINDER_BODY,
+    }
 
 
 @api.get("/student/notifications")
@@ -1203,6 +1226,7 @@ async def student_notifications(u: dict = Depends(require_approved_student)):
     cursor = notifications_col.find(
         {
             "hostel": h,
+            "sent": {"$ne": False},  # only surface notifications that have been dispatched
             "$or": [{"audience": "all"}, {"audience": "student", "recipient_id": u["id"]}],
         },
         {"_id": 0},
@@ -1240,6 +1264,21 @@ async def admin_create_notification(
     payload: NotificationCreate, u: dict = Depends(require_admin)
 ):
     now = now_iso()
+    now_dt = datetime.now(timezone.utc)
+    # Parse `send_at` (ISO datetime). If missing or in the past → fire now.
+    send_at_dt: Optional[datetime] = None
+    if payload.send_at:
+        try:
+            raw = payload.send_at.strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            send_at_dt = datetime.fromisoformat(raw)
+            if send_at_dt.tzinfo is None:
+                send_at_dt = send_at_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid send_at (use ISO 8601 datetime)")
+    is_scheduled_future = send_at_dt is not None and send_at_dt > now_dt
+
     doc = {
         "id": str(uuid.uuid4()),
         "hostel": hostel_of(u),
@@ -1248,24 +1287,31 @@ async def admin_create_notification(
         "audience": payload.audience,
         "recipient_id": payload.recipient_id,
         "type": payload.type,
-        "scheduled_for": payload.scheduled_for or today_iso(),
+        "scheduled_for": payload.scheduled_for or (
+            send_at_dt.date().isoformat() if send_at_dt else today_iso()
+        ),
+        "send_at": send_at_dt.isoformat() if send_at_dt else None,
+        "sent": not is_scheduled_future,
+        "sent_at": None if is_scheduled_future else now,
         "created_by": u["id"],
         "read_by": [],
         "created_at": now,
     }
     await notifications_col.insert_one(doc)
     doc.pop("_id", None)
-    # Fire push
-    recipients = await _recipients_for(u, payload.audience, payload.recipient_id)
-    try:
-        await send_push(
-            recipients,
-            {"title": payload.title.strip(), "message": payload.body.strip(),
-             "subtext": "MessMate", "action_url": "/notifications"},
-            idempotency_key=doc["id"],
-        )
-    except Exception as e:
-        logger.warning("push send failed (non-blocking): %s", e)
+
+    if not is_scheduled_future:
+        # Fire push immediately.
+        recipients = await _recipients_for(u, payload.audience, payload.recipient_id)
+        try:
+            await send_push(
+                recipients,
+                {"title": payload.title.strip(), "message": payload.body.strip(),
+                 "subtext": "MessMate", "action_url": "/notifications"},
+                idempotency_key=doc["id"],
+            )
+        except Exception as e:
+            logger.warning("push send failed (non-blocking): %s", e)
     return _project_notif(doc)
 
 
@@ -1962,6 +2008,61 @@ async def _ensure_indexes_and_migrate():
         pass
 
 
+SCHEDULER_INTERVAL_SEC = int(os.environ.get("NOTIF_SCHEDULER_INTERVAL_SEC", "30"))
+_scheduler_task: Optional[asyncio.Task] = None
+
+
+async def _dispatch_due_notifications() -> int:
+    """Find scheduled notifications whose send_at has arrived and fire them.
+
+    Returns the number of notifications dispatched.
+    """
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
+    cursor = notifications_col.find(
+        {"sent": False, "send_at": {"$lte": now}},
+        {"_id": 0},
+    )
+    dispatched = 0
+    async for doc in cursor:
+        # Resolve recipients for this hostel
+        try:
+            fake_admin = {"institution_or_hostel_name": doc["hostel"]}
+            recipients = await _recipients_for(
+                fake_admin, doc.get("audience", "all"), doc.get("recipient_id")
+            )
+            try:
+                await send_push(
+                    recipients,
+                    {"title": doc["title"], "message": doc["body"],
+                     "subtext": "MessMate", "action_url": "/notifications"},
+                    idempotency_key=doc["id"],
+                )
+            except Exception as e:
+                logger.warning("scheduled push failed (%s): %s", doc.get("id"), e)
+            await notifications_col.update_one(
+                {"id": doc["id"]},
+                {"$set": {"sent": True, "sent_at": now_iso()}},
+            )
+            dispatched += 1
+        except Exception as e:
+            logger.warning("scheduler dispatch failed for %s: %s", doc.get("id"), e)
+    return dispatched
+
+
+async def _scheduler_loop() -> None:
+    """Long-running background task that polls for due notifications."""
+    logger.info("Notification scheduler started (interval=%ss)", SCHEDULER_INTERVAL_SEC)
+    while True:
+        try:
+            await _dispatch_due_notifications()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # pragma: no cover — defensive
+            logger.warning("scheduler loop error (non-fatal): %s", e)
+        await asyncio.sleep(SCHEDULER_INTERVAL_SEC)
+
+
 @app.on_event("startup")
 async def on_startup():
     await _ensure_indexes_and_migrate()
@@ -1969,10 +2070,20 @@ async def on_startup():
         logger.info("MessMate API ready — SMTP email OTP active (%s)", SMTP_HOST)
     else:
         logger.info("MessMate API ready — SMTP NOT configured. OTPs are logged to console (dev mode).")
+    global _scheduler_task
+    if _scheduler_task is None or _scheduler_task.done():
+        _scheduler_task = asyncio.create_task(_scheduler_loop())
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    global _scheduler_task
+    if _scheduler_task and not _scheduler_task.done():
+        _scheduler_task.cancel()
+        try:
+            await _scheduler_task
+        except (asyncio.CancelledError, Exception):
+            pass
     client.close()
     try:
         if _push_client is not None:
